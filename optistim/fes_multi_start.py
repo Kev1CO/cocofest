@@ -382,7 +382,7 @@ class FunctionalElectricStimulationMultiStart(MultiStart):
         states["parameters"] = sol.parameters
         states["phase_time"] = np.array(phase_time)
         states["status"] = sol.status
-        states["model"] = np.array([str(ding_model)])
+        states["model"] = np.array([str(ding_model.name)])
         states["n_stim"] = np.array([n_stim])
         states["n_shooting"] = np.array([n_shooting])
         states["force_tracking"] = force_tracking

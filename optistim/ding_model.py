@@ -27,7 +27,7 @@ class DingModelFrequency:
     This is the Ding 2003 model using the stimulation frequency in input.
     """
 
-    def __init__(self, name: str = None):
+    def __init__(self, name: str = 'DingModelFrequency'):
         self._name = name
         # ---- Custom values for the example ---- #
         self.tauc = 0.020  # Value from Ding's experimentation [1] (s)
@@ -604,8 +604,9 @@ class DingModelFrequency:
 
 
 class DingModelPulseDurationFrequency(DingModelFrequency):
-    def __init__(self):
+    def __init__(self, name: str = 'DingModelPulseDurationFrequency'):
         super().__init__()
+        self._name = name
         self.impulse_time = None
         self.a_scale = 4920  # Value from Ding's 2007 article (N/s)
         self.pd0 = 0.000131405  # Value from Ding's 2007 article (s)
@@ -867,8 +868,9 @@ class DingModelPulseDurationFrequency(DingModelFrequency):
 
 
 class DingModelIntensityFrequency(DingModelFrequency):
-    def __init__(self):
+    def __init__(self, name: str = 'DingModelIntensityFrequency'):
         super().__init__()
+        self._name = name
         self.ar = 0.586  # (-) Translation of axis coordinates.
         self.bs = 0.026  # (-) Fiber muscle recruitment constant identification.
         self.Is = 63.1  # (mA) Muscle saturation intensity.
