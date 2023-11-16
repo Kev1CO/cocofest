@@ -5,7 +5,7 @@ different custom models.
 """
 from typing import Callable
 
-from casadi import MX, exp, vertcat
+from casadi import MX, exp, vertcat, if_else
 import numpy as np
 
 from bioptim import (
@@ -251,6 +251,12 @@ class DingModelFrequency:
         -------
         A part of the n°1 equation
         """
+        t_stim_prev_new = []
+        for i in range(t_stim_prev.shape[0]):
+            t_stim_prev_new.append(if_else(t_stim_prev[i] <= t, t_stim_prev[i], MX()))
+
+        t_stim_prev = [i for i in t_stim_prev_new if t_stim_prev_new[0].shape != (0, 0)]
+
         sum_multiplier = 0
         if len(t_stim_prev) == 1:
             ri = 1
@@ -387,7 +393,12 @@ class DingModelFrequency:
         -------
         The derivative of the states in the tuple[MX] format
         """
-
+        # for i in range(stim_apparition.shape[0]):
+        #     if stim_apparition[i] > time:
+        #         stim_apparition = stim_apparition[:i]
+        #         break
+        # stim_apparition
+        # stim_apparition = stim_apparition[5]
         return (
             DynamicsEvaluation(
                 dxdt=nlp.model.system_dynamics_with_fatigue(
@@ -430,8 +441,8 @@ class DingModelFrequency:
             self.configure_scaling_factor(ocp=ocp, nlp=nlp, as_states=True, as_controls=False)
             self.configure_time_state_force_no_cross_bridge(ocp=ocp, nlp=nlp, as_states=True, as_controls=False)
             self.configure_cross_bridges(ocp=ocp, nlp=nlp, as_states=True, as_controls=False)
-        stim_apparition = self.get_stim_prev(ocp, nlp)
-        ConfigureProblem.configure_dynamics_function(ocp, nlp, dyn_func=self.dynamics, stim_apparition=stim_apparition)
+        # stim_apparition = self.get_stim_prev(ocp, nlp)
+        ConfigureProblem.configure_dynamics_function(ocp, nlp, dyn_func=self.dynamics, stim_apparition=ocp.parameters['pulse_instant_time'].mx)
 
     @staticmethod
     def configure_ca_troponin_complex(
@@ -634,3 +645,14 @@ class DingModelFrequency:
         if not isinstance(t_stim_prev[0], (MX, float)):
             t_stim_prev = [ocp.node_time(phase_idx=i, node_idx=0, type="mx") for i in range(nlp.phase_idx + 1)]
         return t_stim_prev
+
+    def set_impulse_instant(self, value: list[MX]):
+        """
+        Sets the impulse instant time for each pulse (phases) according to the ocp parameter "impulse_instant_time"
+
+        Parameters
+        ----------
+        value: list[MX]
+            The pulsation instants list (s)
+        """
+        self.impulse_instant_time = value

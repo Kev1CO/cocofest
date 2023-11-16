@@ -134,40 +134,58 @@ class FunctionalElectricStimulationOptimalControlProgram(OptimalControlProgram):
         self.parameter_mappings = None
         self.parameters = None
 
-        self.models = [model] * n_stim
-        self.n_shooting = [n_shooting] * n_stim
+        self.models = [model]
+        self.n_shooting = [n_shooting]
 
         constraints = ConstraintList()
         # parameter_bimapping = BiMappingList()
         phase_time_bimapping = None
+        parameters = ParameterList()
+        parameters_bounds = BoundsList()
+        parameters_init = InitialGuessList()
+        parameter_objectives = ParameterObjectiveList()
         if time_min is None and time_max is None:
-            step = final_time / n_stim
-            self.final_time_phase = (step,)
-            for i in range(n_stim - 1):
-                self.final_time_phase = self.final_time_phase + (step,)
+            # step = final_time / n_stim
+            self.final_time_phase = (final_time,)
+            # for i in range(n_stim - 1):
+            # self.final_time_phase = self.final_time_phase + (step,)
 
         elif time_min is not None and time_max is None or time_min is None and time_max is not None:
             raise ValueError("time_min and time_max must be both entered or none of them in order to work")
 
         else:
-            for i in range(n_stim):
-                constraints.add(
-                    ConstraintFcn.TIME_CONSTRAINT,
-                    node=Node.END,
-                    min_bound=time_min,
-                    max_bound=time_max,
-                    phase=i,
-                )
+            # for i in range(n_stim):
+            parameters_bounds.add(
+                "pulse_instant_time",
+                min_bound=np.array([0] * n_stim),
+                max_bound=np.array([final_time] * n_stim),
+                interpolation=InterpolationType.CONSTANT,
+            )
+            parameters_init["pulse_instant_time"] = np.array([0] * n_stim)
+            parameters.add(
+                parameter_name="pulse_instant_time",
+                function=DingModelFrequency.set_impulse_instant,
+                size=n_stim,
+            )
 
-            if time_bimapping is True:
-                phase_time_bimapping = BiMapping(to_second=[0 for _ in range(n_stim)], to_first=[0])
+            # for i in range(n_stim):
+            #     constraints.add(
+            #         ConstraintFcn.TIME_CONSTRAINT,
+            #         node=Node.END,
+            #         min_bound=time_min,
+            #         max_bound=time_max,
+            #         phase=i,
+            #     )
 
-            self.final_time_phase = [0.01] * n_stim
+            # if time_bimapping is True:
+            #     phase_time_bimapping = BiMapping(to_second=[0 for _ in range(n_stim)], to_first=[0])
 
-        parameters = ParameterList()
-        parameters_bounds = BoundsList()
-        parameters_init = InitialGuessList()
-        parameter_objectives = ParameterObjectiveList()
+            self.final_time_phase = [final_time]
+
+        # parameters = ParameterList()
+        # parameters_bounds = BoundsList()
+        # parameters_init = InitialGuessList()
+        # parameter_objectives = ParameterObjectiveList()
         if isinstance(model, DingModelPulseDurationFrequency):
             if pulse_time is None and pulse_time_min is not None and pulse_time_max is None:
                 raise ValueError("Time pulse or Time pulse min max bounds need to be set for this model")
@@ -387,15 +405,15 @@ class FunctionalElectricStimulationOptimalControlProgram(OptimalControlProgram):
 
     def _declare_dynamics(self):
         self.dynamics = DynamicsList()
-        for i in range(self.n_stim):
-            self.dynamics.add(
-                self.models[i].declare_ding_variables,
-                dynamic_function=self.models[i].dynamics,
-                expand_dynamics=True,
-                expand_continuity=False,
-                phase=i,
-                phase_dynamics=PhaseDynamics.ONE_PER_NODE,
-            )
+        # for i in range(self.n_stim):
+        self.dynamics.add(
+            self.models[0].declare_ding_variables,
+            dynamic_function=self.models[0].dynamics,
+            expand_dynamics=True,
+            expand_continuity=False,
+            phase=0,
+            phase_dynamics=PhaseDynamics.ONE_PER_NODE,
+        )
 
     def _set_bounds(self):
         # ---- STATE BOUNDS REPRESENTATION ---- #
@@ -431,29 +449,20 @@ class FunctionalElectricStimulationOptimalControlProgram(OptimalControlProgram):
         middle_bound_min = np.concatenate((min_bounds, min_bounds, min_bounds), axis=1)
         middle_bound_max = np.concatenate((max_bounds, max_bounds, max_bounds), axis=1)
 
-        for i in range(self.n_stim):
-            for j in range(len(variable_bound_list)):
-                if i == 0:
-                    self.x_bounds.add(
-                        variable_bound_list[j],
-                        min_bound=np.array([starting_bounds_min[j]]),
-                        max_bound=np.array([starting_bounds_max[j]]),
-                        phase=i,
-                        interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
-                    )
-                else:
-                    self.x_bounds.add(
-                        variable_bound_list[j],
-                        min_bound=np.array([middle_bound_min[j]]),
-                        max_bound=np.array([middle_bound_max[j]]),
-                        phase=i,
-                        interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
-                    )
+        # for i in range(self.n_stim):
+        for j in range(len(variable_bound_list)):
+            self.x_bounds.add(
+                variable_bound_list[j],
+                min_bound=np.array([starting_bounds_min[j]]),
+                max_bound=np.array([starting_bounds_max[j]]),
+                phase=0,
+                interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
+            )
 
         self.x_init = InitialGuessList()
-        for i in range(self.n_stim):
-            for j in range(len(variable_bound_list)):
-                self.x_init.add(variable_bound_list[j], self.model.standard_rest_values()[j], phase=i)
+        # for i in range(self.n_stim):
+        for j in range(len(variable_bound_list)):
+            self.x_init.add(variable_bound_list[j], self.model.standard_rest_values()[j], phase=0)
 
     def _set_objective(self):
         # Creates the objective for our problem (in this case, match a force curve)
@@ -469,18 +478,18 @@ class FunctionalElectricStimulationOptimalControlProgram(OptimalControlProgram):
                     raise ValueError("All elements in objective kwarg must be an Objective type")
 
         if self.force_fourier_coef is not None:
-            for phase in range(self.n_stim):
-                for i in range(self.n_shooting[phase]):
-                    self.objective_functions.add(
-                        CustomObjective.track_state_from_time,
-                        custom_type=ObjectiveFcn.Mayer,
-                        node=i,
-                        fourier_coeff=self.force_fourier_coef,
-                        key="F",
-                        quadratic=True,
-                        weight=1,
-                        phase=phase,
-                    )
+            # for phase in range(self.n_stim):
+            for i in range(self.n_shooting[0]):
+                self.objective_functions.add(
+                    CustomObjective.track_state_from_time,
+                    custom_type=ObjectiveFcn.Mayer,
+                    node=i,
+                    fourier_coeff=self.force_fourier_coef,
+                    key="F",
+                    quadratic=True,
+                    weight=1,
+                    phase=0,
+                )
 
         if self.end_node_tracking:
             if isinstance(self.end_node_tracking, int | float):
@@ -491,7 +500,7 @@ class FunctionalElectricStimulationOptimalControlProgram(OptimalControlProgram):
                     quadratic=True,
                     weight=1,
                     target=self.end_node_tracking,
-                    phase=self.n_stim - 1,
+                    phase=0,
                 )
             else:
                 raise ValueError("end_node_tracking must be int or float type")
