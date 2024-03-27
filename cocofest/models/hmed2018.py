@@ -11,6 +11,7 @@ from bioptim import (
     ParameterList,
 )
 from .ding2003 import DingModelFrequency
+from .state_configue import StateConfigure
 
 
 class DingModelIntensityFrequency(DingModelFrequency):
@@ -38,6 +39,19 @@ class DingModelIntensityFrequency(DingModelFrequency):
         self.Is = 63.1  # (mA) Muscle saturation intensity.
         self.cr = 0.833  # (-) Translation of axis coordinates.
         self.impulse_intensity = None
+
+    @property
+    def identifiable_parameters(self):
+        return {
+            "a_rest": self.a_rest,
+            "tau1_rest": self.tau1_rest,
+            "km_rest": self.km_rest,
+            "tau2": self.tau2,
+            "ar": self.ar,
+            "bs": self.bs,
+            "Is": self.Is,
+            "cr": self.cr,
+        }
 
     def set_ar(self, model, ar: MX | float):
         # models is required for bioptim compatibility
@@ -317,10 +331,7 @@ class DingModelIntensityFrequency(DingModelFrequency):
         nlp: NonLinearProgram
             A reference to the phase
         """
-        self.configure_ca_troponin_complex(
-            ocp=ocp, nlp=nlp, as_states=True, as_controls=False, muscle_name=self.muscle_name
-        )
-        self.configure_force(ocp=ocp, nlp=nlp, as_states=True, as_controls=False, muscle_name=self.muscle_name)
+        StateConfigure().configure_all_fes_model_states(ocp, nlp, fes_model=self)
         ConfigureProblem.configure_dynamics_function(ocp, nlp, dyn_func=self.dynamics)
 
     def min_pulse_intensity(self):
