@@ -1,6 +1,6 @@
 from typing import Callable
 
-from casadi import MX, vertcat
+from casadi import MX, vertcat, if_else
 import numpy as np
 
 from bioptim import (

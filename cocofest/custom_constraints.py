@@ -2,7 +2,7 @@
 This class regroups all the custom constraints that are used in the optimization problem.
 """
 
-from casadi import MX, SX
+from casadi import MX, SX, if_else
 
 from bioptim import PenaltyController
 
@@ -41,3 +41,20 @@ class CustomConstraint:
             controller.parameters["pulse_intensity"].cx[0]
             - controller.parameters["pulse_intensity"].cx[controller.phase_idx]
         )
+
+    @staticmethod
+    def pulse_time_apparition_as_node(controller: PenaltyController, pulse_idx) -> MX | SX:
+        # result = 0
+        # for i in range(1, controller.parameters["pulse_apparition_time"].cx.shape[0]):
+        #     result += if_else(controller.parameters["pulse_apparition_time"].cx[i] - controller.parameters["pulse_apparition_time"].cx[i-1] > 0.01, 0, 1)
+        # return result
+
+        # for i in range(1, controller.parameters["pulse_apparition_time"].cx.shape[0]):
+        #     controller.ocp.parameter_bounds["pulse_apparition_time"].min[i] = controller.parameters["pulse_apparition_time"].cx[i-1] + 0.001
+        #     controller.ocp.parameter_bounds["pulse_apparition_time"].max[i] = controller.parameters["pulse_apparition_time"].cx[i-1] + 0.1
+
+        return if_else(controller.parameters["pulse_apparition_time"].cx[pulse_idx] > controller.parameters["pulse_apparition_time"].cx[pulse_idx-1] + 0.001, 0, 1)
+
+    @staticmethod
+    def equal_to_first_pulse_interval_time_single_phase(controller: PenaltyController, pulse_idx) -> MX | SX:
+        return controller.parameters["pulse_apparition_time"].cx[1] - controller.parameters["pulse_apparition_time"].cx[pulse_idx] / pulse_idx

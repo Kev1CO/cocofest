@@ -1,7 +1,7 @@
 from typing import Callable
 
 import numpy as np
-from casadi import MX, exp, vertcat
+from casadi import MX, exp, vertcat, if_else
 
 from bioptim import (
     ConfigureProblem,
@@ -204,19 +204,21 @@ class DingModelFrequency(FesModel):
         A part of the n°1 equation
         """
         sum_multiplier = 0
+
         enough_stim_to_truncate = self._sum_stim_truncation and len(t_stim_prev) > self._sum_stim_truncation
         if enough_stim_to_truncate:
             t_stim_prev = t_stim_prev[-self._sum_stim_truncation - 1 :]
-        if len(t_stim_prev) == 1:
-            ri = 1
-            exp_time = self.exp_time_fun(t, t_stim_prev[0])  # Part of Eq n°1
-            sum_multiplier += ri * exp_time  # Part of Eq n°1
-        else:
-            for i in range(1, len(t_stim_prev)):
+        for i in range(len(t_stim_prev)):
+            pulse_coefficient = if_else(t_stim_prev[i] <= t, 1, 0)
+            if i == 0:
+                ri = 1
+                exp_time = self.exp_time_fun(t, t_stim_prev[0])  # Part of Eq n°1
+            else:
                 previous_phase_time = t_stim_prev[i] - t_stim_prev[i - 1]
+                previous_phase_time = if_else(previous_phase_time < 0, 0, previous_phase_time)
                 ri = self.ri_fun(r0, previous_phase_time)  # Part of Eq n°1
                 exp_time = self.exp_time_fun(t, t_stim_prev[i])  # Part of Eq n°1
-                sum_multiplier += ri * exp_time  # Part of Eq n°1
+            sum_multiplier += ri * exp_time * pulse_coefficient  # Part of Eq n°1
         return sum_multiplier
 
     def cn_dot_fun(self, cn: MX, r0: MX | float, t: MX, t_stim_prev: list[MX]) -> MX | float:
@@ -372,8 +374,8 @@ class DingModelFrequency(FesModel):
         for j in range(parameters.shape[0]):
             if "pulse_apparition_time" in nlp.parameters.cx[j].str():
                 t_stim_prev.append(parameters[j])
-            if len(t_stim_prev) > idx:
-                break
+            # if len(t_stim_prev) > idx:
+            #     break
 
         return t_stim_prev
 
