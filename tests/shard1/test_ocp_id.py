@@ -163,8 +163,18 @@ def test_ocp_id_ding2003():
         extend_last_phase=1,
     )
 
+    # Creating the solution from the initial guess
+    dt = np.array([final_time / (ns * n_stim)] * n_stim)
+    sol_from_initial_guess = Solution.from_initial_guess(ivp, [dt, ivp.x_init, ivp.u_init, ivp.p_init, ivp.s_init])
+
     # Integrating the solution
-    result, time = ivp.integrate()
+    result, time = sol_from_initial_guess.integrate(
+        shooting_type=Shooting.SINGLE,
+        integrator=SolutionIntegrator.OCP,
+        to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES],
+        return_time=True,
+        duplicated_times=False,
+    )
 
     force = result["F"][0].tolist()
     time = [float(time) for time in time]
@@ -220,8 +230,18 @@ def test_ocp_id_ding2007():
         extend_last_phase=1,
     )
 
+    # Creating the solution from the initial guess
+    dt = np.array([final_time / (ns * n_stim)] * n_stim)
+    sol_from_initial_guess = Solution.from_initial_guess(ivp, [dt, ivp.x_init, ivp.u_init, ivp.p_init, ivp.s_init])
+
     # Integrating the solution
-    result, time = ivp.integrate()
+    result, time = sol_from_initial_guess.integrate(
+        shooting_type=Shooting.SINGLE,
+        integrator=SolutionIntegrator.OCP,
+        to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES],
+        return_time=True,
+        duplicated_times=False,
+    )
 
     force = result["F"][0].tolist()
     time = [float(time) for time in time]
@@ -280,8 +300,18 @@ def test_ocp_id_hmed2018():
         extend_last_phase=1,
     )
 
+    # Creating the solution from the initial guess
+    dt = np.array([final_time / (ns * n_stim)] * n_stim)
+    sol_from_initial_guess = Solution.from_initial_guess(ivp, [dt, ivp.x_init, ivp.u_init, ivp.p_init, ivp.s_init])
+
     # Integrating the solution
-    result, time = ivp.integrate()
+    result, time = sol_from_initial_guess.integrate(
+        shooting_type=Shooting.SINGLE,
+        integrator=SolutionIntegrator.OCP,
+        to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES],
+        return_time=True,
+        duplicated_times=False,
+    )
 
     force = result["F"][0].tolist()
     time = [float(time) for time in time]
