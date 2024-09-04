@@ -43,6 +43,33 @@ class FesModel(ABC):
         """
 
     @abstractmethod
+    def nb_stim_prev(self):
+        """
+
+        Returns
+        -------
+
+        """
+
+    @abstractmethod
+    def set_stim_prev(self, stim):
+        """
+
+        Returns
+        -------
+
+        """
+
+    @abstractmethod
+    def set_current_stim(self, stim):
+        """
+
+        Returns
+        -------
+
+        """
+
+    @abstractmethod
     def standard_rest_values(self):
         """
 

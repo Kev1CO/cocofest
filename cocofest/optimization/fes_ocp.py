@@ -1,4 +1,5 @@
 import numpy as np
+from casadi import MX
 
 from bioptim import (
     BoundsList,
@@ -29,6 +30,7 @@ from ..models.ding2007_with_fatigue import DingModelPulseDurationFrequencyWithFa
 from ..models.ding2003 import DingModelFrequency
 from ..models.hmed2018 import DingModelIntensityFrequency
 from ..models.hmed2018_with_fatigue import DingModelIntensityFrequencyWithFatigue
+from ..models.builder import ModelBuilder
 from ..enums import StimulationMode
 
 
@@ -157,7 +159,16 @@ class OcpFes:
             None if force_tracking is None else OcpFes._build_fourier_coefficient(force_tracking)
         )
 
-        models = [model] * n_stim
+        if time_min:
+            stim_time = MX.sym('pulse_apparition_time', n_stim, 1)
+            builder = ModelBuilder(model=model, stim_time=stim_time)
+        else:
+            stim_time = [final_time/n_stim * i for i in range(n_stim)]
+            builder = ModelBuilder(model=model, stim_time=stim_time)
+
+        models = builder.build()
+
+        # models = [model] * n_stim
         n_shooting = [n_shooting] * n_stim
 
         final_time_phase = OcpFes._build_phase_time(
@@ -250,7 +261,7 @@ class OcpFes:
             "bimapping": False,
             "frequency": None,
             "round_down": False,
-            "pulse_mode": "single",
+            "pulse_mode": StimulationMode.SINGLE,
         }
 
         default_pulse_duration = {
@@ -514,7 +525,7 @@ class OcpFes:
     def _build_phase_time(final_time, n_stim, pulse_mode, time_min, time_max):
         final_time_phase = None
         if time_min is None and time_max is None:
-            if pulse_mode == "single":
+            if pulse_mode == StimulationMode.SINGLE:
                 step = final_time / n_stim
                 final_time_phase = (step,)
                 for i in range(n_stim - 1):
@@ -793,7 +804,7 @@ class OcpFes:
         return objective_functions
 
     @staticmethod
-    def _build_phase_parameter(n_stim, final_time, frequency=None, pulse_mode="single", round_down=False):
+    def _build_phase_parameter(n_stim, final_time, frequency=None, pulse_mode=StimulationMode.SINGLE, round_down=False):
         pulse_mode_multiplier = 1 if pulse_mode == StimulationMode.SINGLE else 2 if pulse_mode == StimulationMode.DOUBLET else 3
         if n_stim and frequency:
             final_time = n_stim / frequency / pulse_mode_multiplier

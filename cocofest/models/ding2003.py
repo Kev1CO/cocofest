@@ -31,11 +31,15 @@ class DingModelFrequency(FesModel):
 
     def __init__(
         self,
+        time_stim_prev=None,
+        time_current_stim=None,
         model_name: str = "ding2003",
         muscle_name: str = None,
         sum_stim_truncation: int = None,
     ):
         super().__init__()
+        self.time_stim_prev = time_stim_prev if time_stim_prev is not None else []
+        self.time_current_stim = time_current_stim if time_current_stim is not None else []
         self._model_name = model_name
         self._muscle_name = muscle_name
         self._sum_stim_truncation = sum_stim_truncation
@@ -63,6 +67,16 @@ class DingModelFrequency(FesModel):
 
     def set_tau2(self, model, tau2: MX | float):
         self.tau2 = tau2
+
+    @property
+    def nb_stim_prev(self):
+        return len(self.time_stim_prev)
+
+    def set_stim_prev(self, stim):
+        self.time_stim_prev = stim
+
+    def set_current_stim(self, stim):
+        self.time_current_stim = stim
 
     def standard_rest_values(self) -> np.array:
         """
