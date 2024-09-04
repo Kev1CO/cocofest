@@ -22,6 +22,7 @@ from ..models.ding2007 import DingModelPulseDurationFrequency
 from ..models.ding2007_with_fatigue import DingModelPulseDurationFrequencyWithFatigue
 from ..models.hmed2018 import DingModelIntensityFrequency
 from ..models.hmed2018_with_fatigue import DingModelIntensityFrequencyWithFatigue
+from ..enums import StimulationMode
 
 
 class IvpFes:
@@ -63,6 +64,7 @@ class IvpFes:
         self.n_stim = self.fes_parameters["n_stim"]
         self.pulse_duration = self.fes_parameters["pulse_duration"]
         self.pulse_intensity = self.fes_parameters["pulse_intensity"]
+        self.fes_parameters["pulse_mode"] = StimulationMode.SINGLE if self.fes_parameters["pulse_mode"] is None else self.fes_parameters["pulse_mode"]
 
         self.parameter_mappings = None
         self.parameters = None
@@ -149,7 +151,7 @@ class IvpFes:
             "n_stim": 1,
             "pulse_duration": 0.0003,
             "pulse_intensity": 50,
-            "pulse_mode": "single",
+            "pulse_mode": StimulationMode.SINGLE,
         }
 
         if fes_parameters is None:
@@ -256,8 +258,8 @@ class IvpFes:
             if minimum_pulse_intensity is False:
                 raise ValueError("Pulse intensity must be greater than minimum pulse intensity")
 
-        if not isinstance(self.fes_parameters["pulse_mode"], str):
-            raise ValueError("pulse_mode must be a string type")
+        if not isinstance(self.fes_parameters["pulse_mode"], StimulationMode):
+            raise TypeError("pulse_mode must be a Enum.StimulationMode type")
 
         if not isinstance(self.ivp_parameters["n_shooting"], int | list | None):
             raise ValueError("n_shooting must be an int or a list type")
@@ -280,14 +282,14 @@ class IvpFes:
             raise ValueError("n_thread must be a int type")
 
     def _pulse_mode_settings(self):
-        if self.pulse_mode == "single":
+        if self.pulse_mode == StimulationMode.SINGLE:
             step = self.final_time / self.n_stim
             self.final_time_phase = (step,)
             for i in range(self.n_stim):
                 self.final_time_phase = self.final_time_phase + (step,)
                 self.dt.append(step / self.n_shooting[i])
 
-        elif self.pulse_mode == "doublet":
+        elif self.pulse_mode == StimulationMode.DOUBLET:
             doublet_step = 0.005
             step = np.round(self.final_time / (self.n_stim / 2) - doublet_step, 3)
             index = 0
@@ -299,7 +301,7 @@ class IvpFes:
                 self.dt.append(step / self.n_shooting[index])
                 index += 1
 
-        elif self.pulse_mode == "triplet":
+        elif self.pulse_mode == StimulationMode.TRIPLET:
             doublet_step = 0.005
             triplet_step = 0.005
             step = np.round(self.final_time / (self.n_stim / 3) - doublet_step - triplet_step, 3)
@@ -314,9 +316,6 @@ class IvpFes:
                 index += 1
                 self.dt.append(step / self.n_shooting[index])
                 index += 1
-
-        else:
-            raise ValueError("Pulse mode not yet implemented")
 
         self.dt = np.array(self.dt)
         if self.extend_last_phase_time:

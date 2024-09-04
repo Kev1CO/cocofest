@@ -5,7 +5,7 @@ The example model is the Ding2003 frequency model.
 
 import numpy as np
 import matplotlib.pyplot as plt
-from cocofest import DingModelFrequencyWithFatigue, IvpFes
+from cocofest import DingModelFrequencyWithFatigue, IvpFes, StimulationMode
 
 # --- Example n°1 : Single --- #
 # --- Build ocp --- #
@@ -15,7 +15,7 @@ ns = 10
 n_stim = 10
 final_time = 1
 
-fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": "single"}
+fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": StimulationMode.SINGLE}
 ivp_parameters = {"n_shooting": ns, "final_time": final_time, "use_sx": True}
 
 ivp = IvpFes(
@@ -35,7 +35,7 @@ stimulation_single = np.concatenate((np.array([0]), np.cumsum(np.array(ivp.final
 ns = 10
 n_stim = 20
 final_time = 1
-fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": "doublet"}
+fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": StimulationMode.DOUBLET}
 ivp_parameters = {"n_shooting": ns, "final_time": final_time, "use_sx": True}
 ivp = IvpFes(
     fes_parameters,
@@ -51,7 +51,7 @@ stimulation_doublet = np.concatenate((np.array([0]), np.cumsum(np.array(ivp.fina
 # --- Build ocp --- #
 # This example shows how to create a problem with triplet pulses.
 n_stim = 30
-fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": "triplet"}
+fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": StimulationMode.TRIPLET}
 ivp_parameters = {"n_shooting": 10, "final_time": 1, "use_sx": True}
 ivp = IvpFes(
     fes_parameters,

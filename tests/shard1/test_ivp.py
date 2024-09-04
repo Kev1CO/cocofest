@@ -10,6 +10,7 @@ from cocofest import (
     DingModelPulseDurationFrequencyWithFatigue,
     DingModelIntensityFrequency,
     DingModelIntensityFrequencyWithFatigue,
+    StimulationMode,
 )
 
 
@@ -91,9 +92,9 @@ def test_hmed2018_ivp(model, pulse_intensity):
         np.testing.assert_almost_equal(result["F"][0][-1], 55.57471909903151)
 
 
-@pytest.mark.parametrize("pulse_mode", ["single", "doublet", "triplet"])
+@pytest.mark.parametrize("pulse_mode", [StimulationMode.SINGLE, StimulationMode.DOUBLET, StimulationMode.TRIPLET])
 def test_pulse_mode_ivp(pulse_mode):
-    n_stim = 3 if pulse_mode == "single" else 6 if pulse_mode == "doublet" else 9
+    n_stim = 3 if pulse_mode == StimulationMode.SINGLE else 6 if pulse_mode == StimulationMode.DOUBLET else 9
     fes_parameters = {"model": DingModelFrequencyWithFatigue(), "n_stim": n_stim, "pulse_mode": pulse_mode}
     ivp_parameters = {"n_shooting": 10, "final_time": 0.3, "use_sx": True}
 
@@ -102,16 +103,16 @@ def test_pulse_mode_ivp(pulse_mode):
     # Integrating the solution
     result = ivp.integrate(return_time=False)
 
-    if pulse_mode == "single":
+    if pulse_mode == StimulationMode.SINGLE:
         np.testing.assert_almost_equal(result["F"][0][0], 0)
         np.testing.assert_almost_equal(result["F"][0][10], 92.06532561584642)
         np.testing.assert_almost_equal(result["F"][0][-1], 138.94556672277545)
-    elif pulse_mode == "doublet":
+    elif pulse_mode == StimulationMode.DOUBLET:
         np.testing.assert_almost_equal(result["F"][0][0], 0)
         np.testing.assert_almost_equal(result["F"][0][20], 107.1572156700596)
         np.testing.assert_almost_equal(result["F"][0][-1], 199.51123480749564)
 
-    elif pulse_mode == "triplet":
+    elif pulse_mode == StimulationMode.TRIPLET:
         np.testing.assert_almost_equal(result["F"][0][0], 0)
         np.testing.assert_almost_equal(result["F"][0][30], 137.72706226851224)
         np.testing.assert_almost_equal(result["F"][0][-1], 236.04865519419803)
@@ -140,7 +141,7 @@ def test_all_ivp_errors():
             ivp_parameters={"n_shooting": 1, "final_time": 1.25},
         )
 
-    with pytest.raises(ValueError, match="Pulse mode not yet implemented"):
+    with pytest.raises(TypeError, match="pulse_mode must be a Enum.StimulationMode type"):
         IvpFes(
             fes_parameters={"model": DingModelFrequency(), "n_stim": 3, "pulse_mode": "Quadruplet"},
             ivp_parameters={"n_shooting": 10, "final_time": 0.3},

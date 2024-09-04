@@ -29,3 +29,4 @@ from .dynamics.inverse_kinematics_and_dynamics import (
 from .result.plot import PlotCyclingResult
 from .result.pickle import SolutionToPickle
 from .result.animate import PickleAnimate
+from .enums import StimulationMode

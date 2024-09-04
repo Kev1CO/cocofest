@@ -489,8 +489,8 @@ def test_all_ocp_fes_errors():
     with pytest.raises(ValueError, match="final_time must be positive"):
         OcpFes.prepare_ocp(model=DingModelFrequency(), n_stim=3, n_shooting=10, final_time=-0.3)
 
-    pulse_mode = "doublet"
-    with pytest.raises(NotImplementedError, match=re.escape(f"Pulse mode '{pulse_mode}' is not yet implemented")):
+    pulse_mode = StimulationMode.DOUBLET
+    with pytest.raises(NotImplementedError, match=re.escape(f"Pulse mode '{str(pulse_mode.value)}' is not yet implemented")):
         OcpFes.prepare_ocp(
             model=DingModelFrequency(),
             n_stim=3,

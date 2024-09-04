@@ -29,6 +29,7 @@ from ..models.ding2007_with_fatigue import DingModelPulseDurationFrequencyWithFa
 from ..models.ding2003 import DingModelFrequency
 from ..models.hmed2018 import DingModelIntensityFrequency
 from ..models.hmed2018_with_fatigue import DingModelIntensityFrequencyWithFatigue
+from ..enums import StimulationMode
 
 
 class OcpFes:
@@ -347,8 +348,8 @@ class OcpFes:
                 raise TypeError("final_time must be int or float type")
 
         if pulse_mode:
-            if pulse_mode != "single":
-                raise NotImplementedError(f"Pulse mode '{pulse_mode}' is not yet implemented")
+            if pulse_mode != StimulationMode.SINGLE:
+                raise NotImplementedError(f"Pulse mode '{str(StimulationMode.SINGLE.value)}' is not yet implemented")
 
         if frequency:
             if isinstance(frequency, int | float):
@@ -567,7 +568,7 @@ class OcpFes:
                 interpolation=InterpolationType.CONSTANT,
             )
 
-            parameters_init["pulse_apparition_time"] = np.array([0] * n_stim)
+            parameters_init["pulse_apparition_time"] = np.array([(time_min + time_max)/2] * n_stim)
 
             for i in range(n_stim):
                 constraints.add(CustomConstraint.pulse_time_apparition_as_phase, node=Node.START, phase=i, target=0)
@@ -608,7 +609,7 @@ class OcpFes:
                     max_bound=[pulse_duration_max],
                     interpolation=InterpolationType.CONSTANT,
                 )
-                parameters_init["pulse_duration"] = np.array([0] * n_stim)
+                parameters_init["pulse_duration"] = np.array([(pulse_duration_min + pulse_duration_max)/2] * n_stim)
                 parameters.add(
                     name="pulse_duration",
                     function=DingModelPulseDurationFrequency.set_impulse_duration,
@@ -652,8 +653,7 @@ class OcpFes:
                     max_bound=[pulse_intensity_max],
                     interpolation=InterpolationType.CONSTANT,
                 )
-                intensity_avg = (pulse_intensity_min + pulse_intensity_max) / 2
-                parameters_init["pulse_intensity"] = np.array([intensity_avg] * n_stim)
+                parameters_init["pulse_intensity"] = np.array([(pulse_intensity_min + pulse_intensity_max) / 2] * n_stim)
                 parameters.add(
                     name="pulse_intensity",
                     function=DingModelIntensityFrequency.set_impulse_intensity,
@@ -794,7 +794,7 @@ class OcpFes:
 
     @staticmethod
     def _build_phase_parameter(n_stim, final_time, frequency=None, pulse_mode="single", round_down=False):
-        pulse_mode_multiplier = 1 if pulse_mode == "single" else 2 if pulse_mode == "doublet" else 3
+        pulse_mode_multiplier = 1 if pulse_mode == StimulationMode.SINGLE else 2 if pulse_mode == StimulationMode.DOUBLET else 3
         if n_stim and frequency:
             final_time = n_stim / frequency / pulse_mode_multiplier
 

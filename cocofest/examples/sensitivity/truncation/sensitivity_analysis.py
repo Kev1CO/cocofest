@@ -4,6 +4,7 @@ import pickle
 from cocofest import (
     DingModelFrequencyWithFatigue,
     IvpFes,
+    StimulationMode
 )
 
 # This is a sensitivity analysis, the associated graphs are available in the summation_truncation_graph example.
@@ -12,12 +13,12 @@ counter = 0
 min_stim = 1
 max_stim = 101
 repetition = 100
-modes = ["single", "doublet", "triplet"]
+modes = [StimulationMode.SINGLE, StimulationMode.DOUBLET, StimulationMode.TRIPLET]
 nb = int((max_stim - min_stim) ** 2 / 2 + (max_stim - min_stim) / 2) * len(modes) * repetition
 node_shooting = 1000
 final_time = 1
 for mode in modes:
-    print("currently mode: " + mode)
+    print("currently mode: " + str(mode.value))
     force_total_results = []
     calcium_total_results = []
     a_total_results = []
@@ -27,11 +28,11 @@ for mode in modes:
     computations_time_avg = []
     creation_ocp_time = []
     parameter_list = []
-    if mode == "single":
+    if mode == StimulationMode.SINGLE:
         coefficient = 1
-    elif mode == "doublet":
+    elif mode == StimulationMode.DOUBLET:
         coefficient = 2
-    elif mode == "triplet":
+    elif mode == StimulationMode.TRIPLET:
         coefficient = 3
     else:
         raise RuntimeError("Mode not recognized")
@@ -118,12 +119,12 @@ for mode in modes:
         "repetition": repetition,
     }
 
-    if mode == "single":
+    if mode == StimulationMode.SINGLE:
         with open("truncation_single.pkl", "wb") as file:
             pickle.dump(dictionary, file)
-    elif mode == "doublet":
+    elif mode == StimulationMode.DOUBLET:
         with open("truncation_doublet.pkl", "wb") as file:
             pickle.dump(dictionary, file)
-    elif mode == "triplet":
+    elif mode == StimulationMode.TRIPLET:
         with open("truncation_triplet.pkl", "wb") as file:
             pickle.dump(dictionary, file)
