@@ -13,11 +13,14 @@ from bioptim import (
 )
 
 from .fes_ocp import OcpFes
+from .fes_ocp_dynamics import OcpFesMsk
 from ..models.fes_model import FesModel
 from ..custom_objectives import CustomObjective
+from .fes_ocp_nmpc_cyclic import OcpFesNmpcCyclic
+from ..dynamics.warm_start import get_initial_guess
 
 
-class OcpFesNmpcCyclic:
+class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
     def __init__(
         self,
         models: list[FesModel] = None,
@@ -27,6 +30,15 @@ class OcpFesNmpcCyclic:
         pulse_event: dict = None,
         pulse_duration: dict = None,
         pulse_intensity: dict = None,
+        bound_type: list = None,
+        bound_data: list = None,
+        fes_muscle_models: list[FesModel] = None,
+        with_residual_torque: bool = None,
+        activate_force_length_relationship: bool = None,
+        activate_force_velocity_relationship: bool = None,
+        minimize_muscle_fatigue: bool = None,
+        minimize_muscle_force: bool = None,
+        custom_constraint: list = None,
         n_total_cycles: int = None,
         n_simultaneous_cycles: int = None,
         n_cycle_to_advance: int = None,
@@ -52,6 +64,16 @@ class OcpFesNmpcCyclic:
         self.use_sx = use_sx
         self.ode_solver = ode_solver
         self.n_threads = n_threads
+        self.bound_type = bound_type
+        self.bound_data = bound_data
+        self.fes_muscle_models = fes_muscle_models
+        self.with_residual_torque = with_residual_torque
+        self.activate_force_length_relationship = activate_force_length_relationship
+        self.activate_force_velocity_relationship = activate_force_velocity_relationship
+        self.minimize_muscle_fatigue = minimize_muscle_fatigue
+        self.minimize_muscle_force = minimize_muscle_force
+        self.custom_constraint = custom_constraint
+        self.warm_start = False
         self.ocp = None
         self._nmpc_sanity_check()
         self.states = []
@@ -78,18 +100,25 @@ class OcpFesNmpcCyclic:
         pulse_duration_min = pulse_duration["min"]
         pulse_duration_max = pulse_duration["max"]
         pulse_duration_bimapping = pulse_duration["bimapping"]
+        key_in_dict = "similar_for_all_muscles" in pulse_duration
+        pulse_duration_similar_for_all_muscles = pulse_duration["similar_for_all_muscles"] if key_in_dict else False
 
         fixed_pulse_intensity = pulse_intensity["fixed"]
         pulse_intensity_min = pulse_intensity["min"]
         pulse_intensity_max = pulse_intensity["max"]
         pulse_intensity_bimapping = pulse_intensity["bimapping"]
+        key_in_dict = "similar_for_all_muscles" in pulse_intensity
+        pulse_intensity_similar_for_all_muscles = pulse_intensity["similar_for_all_muscles"] if key_in_dict else False
 
         force_tracking = objective["force_tracking"]
         end_node_tracking = objective["end_node_tracking"]
+        cycling_objective = objective["cycling"]
         custom_objective = objective["custom"]
+        key_in_dict = "q_tracking" in objective
+        q_tracking = objective["q_tracking"] if key_in_dict else None
 
         OcpFes._sanity_check(
-            models=self.models,
+            models=[self.models[i].bio_stim_model[1] for i in range(len(self.models))],
             n_stim=self.n_stim * self.n_simultaneous_cycles,
             n_shooting=self.n_shooting,
             final_time=self.final_time,
@@ -106,32 +135,63 @@ class OcpFesNmpcCyclic:
             pulse_intensity_min=pulse_intensity_min,
             pulse_intensity_max=pulse_intensity_max,
             pulse_intensity_bimapping=pulse_intensity_bimapping,
-            force_tracking=force_tracking,
-            end_node_tracking=end_node_tracking,
             custom_objective=custom_objective,
             use_sx=self.use_sx,
             ode_solver=self.ode_solver,
             n_threads=self.n_threads,
         )
 
-        OcpFes._sanity_check_frequency(
-            n_stim=self.n_stim, final_time=self.final_time, frequency=frequency, round_down=round_down
+        OcpFesMsk._sanity_check_fes_models_inputs(
+            biorbd_model_path=self.models[0].bio_model.path,
+            bound_type=self.bound_type,
+            bound_data=self.bound_data,
+            fes_muscle_models=self.models[0].muscles_dynamics_model,
+            force_tracking=force_tracking,
+            end_node_tracking=end_node_tracking,
+            cycling_objective=cycling_objective,
+            q_tracking=q_tracking,
+            with_residual_torque=self.with_residual_torque,
+            activate_force_length_relationship=self.activate_force_length_relationship,
+            activate_force_velocity_relationship=self.activate_force_velocity_relationship,
+            minimize_muscle_fatigue=self.minimize_muscle_fatigue,
+            minimize_muscle_force=self.minimize_muscle_force,
         )
 
-        force_fourier_coefficient = (
-            None if force_tracking is None else OcpFes._build_fourier_coefficient(force_tracking)
+        OcpFes._sanity_check_frequency(n_stim=self.n_stim, final_time=self.final_time, frequency=frequency, round_down=round_down)
+
+        OcpFesMsk._sanity_check_muscle_model(biorbd_model_path=self.models[0].bio_model.path, fes_muscle_models=self.models[0].muscles_dynamics_model)
+
+        n_stim, final_time = OcpFes._build_phase_parameter(
+            n_stim=self.n_stim, final_time=self.final_time, frequency=frequency, pulse_mode=pulse_mode, round_down=round_down
         )
 
+        force_fourier_coef = [] if force_tracking else None
+        if force_tracking:
+            for i in range(len(force_tracking[1])):
+                force_fourier_coef.append(OcpFes._build_fourier_coefficient([force_tracking[0], force_tracking[1][i]]))
+
+        q_fourier_coef = [] if q_tracking else None
+        if q_tracking:
+            for i in range(len(q_tracking[1])):
+                q_fourier_coef.append(OcpFes._build_fourier_coefficient([q_tracking[0], q_tracking[1][i]]))
+
+        n_shooting = [self.n_shooting] * n_stim * self.n_simultaneous_cycles
         final_time_phase = OcpFes._build_phase_time(
-            final_time=self.final_time * self.n_simultaneous_cycles,
-            n_stim=self.n_stim * self.n_simultaneous_cycles,
+            final_time=final_time * self.n_simultaneous_cycles,
+            n_stim=n_stim * self.n_simultaneous_cycles,
             pulse_mode=pulse_mode,
             time_min=time_min,
             time_max=time_max,
         )
-        parameters, parameters_bounds, parameters_init, parameter_objectives, constraints = OcpFes._build_parameters(
-            model=self.models[0],
-            n_stim=self.n_stim * self.n_simultaneous_cycles,
+        (
+            parameters,
+            parameters_bounds,
+            parameters_init,
+            parameter_objectives,
+            constraints,
+        ) = OcpFesMsk._build_parameters(
+            model=self.models[0].muscles_dynamics_model,
+            n_stim=n_stim * self.n_simultaneous_cycles,
             time_min=time_min,
             time_max=time_max,
             time_bimapping=time_bimapping,
@@ -139,12 +199,16 @@ class OcpFesNmpcCyclic:
             pulse_duration_min=pulse_duration_min,
             pulse_duration_max=pulse_duration_max,
             pulse_duration_bimapping=pulse_duration_bimapping,
+            pulse_duration_similar_for_all_muscles=pulse_duration_similar_for_all_muscles,
             fixed_pulse_intensity=fixed_pulse_intensity,
             pulse_intensity_min=pulse_intensity_min,
             pulse_intensity_max=pulse_intensity_max,
             pulse_intensity_bimapping=pulse_intensity_bimapping,
+            pulse_intensity_similar_for_all_muscles=pulse_intensity_similar_for_all_muscles,
             use_sx=self.use_sx,
         )
+
+        constraints = OcpFesMsk._set_constraints(constraints, self.custom_constraint)
 
         if len(constraints) == 0 and len(parameters) == 0:
             raise ValueError(
@@ -152,34 +216,52 @@ class OcpFesNmpcCyclic:
                 " add parameter to optimize or use the IvpFes method to build your problem"
             )
 
-        dynamics = OcpFes._declare_dynamics(self.models, self.n_stim * self.n_simultaneous_cycles)
-        x_bounds, x_init = OcpFes._set_bounds(self.models[0], self.n_stim * self.n_simultaneous_cycles)
-        one_cycle_shooting = [self.n_shooting] * self.n_stim
-        objective_functions = self._set_objective(
-            self.n_stim,
-            one_cycle_shooting,
-            force_fourier_coefficient,
+        dynamics = OcpFesMsk._declare_dynamics(self.models, n_stim * self.n_simultaneous_cycles)
+        initial_state = (
+            get_initial_guess(self.models[0].bio_model.path, final_time, n_stim, n_shooting, objective) if self.warm_start else None
+        )
+
+        x_bounds, x_init = OcpFesMsk._set_bounds(
+            self.models,
+            self.models[0].muscles_dynamics_model,
+            self.bound_type,
+            self.bound_data,
+            n_stim * self.n_simultaneous_cycles,
+            initial_state,
+        )
+        u_bounds, u_init = OcpFesMsk._set_controls(self.models, n_stim * self.n_simultaneous_cycles, self.with_residual_torque)
+        muscle_force_key = ["F_" + self.models[0].muscles_dynamics_model[i].muscle_name for i in range(len(self.models[0].muscles_dynamics_model))]
+        objective_functions = OcpFesMsk._set_objective(
+            n_stim,
+            n_shooting,
+            force_fourier_coef,
             end_node_tracking,
+            cycling_objective,
             custom_objective,
+            q_fourier_coef,
+            self.minimize_muscle_fatigue,
+            self.minimize_muscle_force,
+            muscle_force_key,
             time_min,
             time_max,
-            self.n_simultaneous_cycles,
         )
-        all_cycle_n_shooting = [self.n_shooting] * self.n_stim * self.n_simultaneous_cycles
+
         self.ocp = OptimalControlProgram(
             bio_model=self.models,
             dynamics=dynamics,
-            n_shooting=all_cycle_n_shooting,
+            n_shooting=n_shooting,
             phase_time=final_time_phase,
             objective_functions=objective_functions,
             x_init=x_init,
             x_bounds=x_bounds,
+            u_init=u_init,
+            u_bounds=u_bounds,
             constraints=constraints,
             parameters=parameters,
             parameter_bounds=parameters_bounds,
             parameter_init=parameters_init,
             parameter_objectives=parameter_objectives,
-            control_type=ControlType.CONSTANT,
+            # control_type=self.control_type,
             use_sx=self.use_sx,
             ode_solver=self.ode_solver,
             n_threads=self.n_threads,

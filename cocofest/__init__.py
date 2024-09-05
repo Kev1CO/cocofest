@@ -13,6 +13,7 @@ from .optimization.fes_ocp import OcpFes
 from .optimization.fes_identification_ocp import OcpFesId
 from .optimization.fes_ocp_dynamics import OcpFesMsk
 from .optimization.fes_ocp_nmpc_cyclic import OcpFesNmpcCyclic
+from .optimization.fes_ocp_dynamics_nmpc_cyclic import OcpFesDynamicsNmpcCyclic
 from .integration.ivp_fes import IvpFes
 from .fourier_approx import FourierSeries
 from .identification.ding2003_force_parameter_identification import DingModelFrequencyForceParameterIdentification

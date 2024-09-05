@@ -22,6 +22,10 @@ class ModelBuilder:
                  bs=None,
                  Is=None,
                  cr=None,
+                 biorbd_model_path=None,
+                 fes_muscle_models=None,
+                 activate_force_length_relationship=None,
+                 activate_force_velocity_relationship=None,
                  ):
 
         self.stim_time = stim_time if stim_time is not None else []
@@ -42,6 +46,10 @@ class ModelBuilder:
         self.bs = bs
         self.Is = Is
         self.cr = cr
+        self.biorbd_model_path = biorbd_model_path
+        self.fes_muscle_models = fes_muscle_models
+        self.activate_force_length_relationship = activate_force_length_relationship
+        self.activate_force_velocity_relationship = activate_force_velocity_relationship
 
         self.models = self._create_models()
 
@@ -66,13 +74,17 @@ class ModelBuilder:
                                   bs=self.bs,
                                   Is=self.Is,
                                   cr=self.cr,
+                                  biorbd_path=self.biorbd_model_path,
+                                  muscles_model=self.fes_muscle_models,
+                                  activate_force_length_relationship=self.activate_force_length_relationship,
+                                  activate_force_velocity_relationship=self.activate_force_velocity_relationship,
                                   ) for i in range(len(phases))]
         return self.models
 
     def build(self):
         return self.models
 
-    def build_for_nmpc(self, final_time, n_simultaneous_cycles):
+    def build_for_nmpc(self, final_time):
         if not isinstance(self.stim_time, list):
             raise TypeError("stim_time must be a list type, can not build nmpc from symbolic")
         nmpc_stim_time = list(np.array([np.array(self.stim_time) + final_time * i for i in range(3)]).flatten())
@@ -95,6 +107,10 @@ class ModelBuilder:
                                   bs=self.bs,
                                   Is=self.Is,
                                   cr=self.cr,
+                                  biorbd_path=self.biorbd_model_path,
+                                  muscles_model=self.fes_muscle_models,
+                                  activate_force_length_relationship=self.activate_force_length_relationship,
+                                  activate_force_velocity_relationship=self.activate_force_velocity_relationship,
                                   ) for i in range(len(phases))]
         return self.models
 

@@ -21,10 +21,13 @@ class FesMskModel(BiorbdModel):
     def __init__(
         self,
         name: str = None,
+        time_stim_prev=None,
+        time_current_stim=None,
         biorbd_path: str = None,
         muscles_model: list[FesModel] = None,
         activate_force_length_relationship: bool = False,
         activate_force_velocity_relationship: bool = False,
+        **kwargs,
     ):
         """
         The custom model that will be used in the optimal control program for the FES-MSK models
@@ -52,6 +55,9 @@ class FesMskModel(BiorbdModel):
 
         self.activate_force_length_relationship = activate_force_length_relationship
         self.activate_force_velocity_relationship = activate_force_velocity_relationship
+
+        self.time_stim_prev = time_stim_prev
+        self.time_current_stim = time_current_stim
 
     # ---- Absolutely needed methods ---- #
     def serialize(self, index: int = 0) -> tuple[Callable, dict]:
