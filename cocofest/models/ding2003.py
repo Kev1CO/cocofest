@@ -36,6 +36,7 @@ class DingModelFrequency(FesModel):
         model_name: str = "ding2003",
         muscle_name: str = None,
         sum_stim_truncation: int = None,
+        **kwargs,
     ):
         super().__init__()
         self.time_stim_prev = time_stim_prev if time_stim_prev is not None else []
@@ -50,10 +51,11 @@ class DingModelFrequency(FesModel):
         self.r0_km_relationship = 1.04  # (unitless)
         # ---- Different values for each person ---- #
         # ---- Force models ---- #
-        self.a_rest = 3009  # Value from Ding's experimentation [1] (N.s-1)
-        self.tau1_rest = 0.050957  # Value from Ding's experimentation [1] (s)
-        self.tau2 = 0.060  # Close value from Ding's experimentation [2] (s)
-        self.km_rest = 0.103  # Value from Ding's experimentation [1] (unitless)
+        kwargs = {i:kwargs[i] for i in kwargs if kwargs[i]!=None}
+        self.a_rest = kwargs["a_rest"] if "a_rest" in kwargs else 3009  # Value from Ding's experimentation [1] (N.s-1)
+        self.tau1_rest = kwargs["tau1_rest"] if "tau1_rest" in kwargs else 0.050957  # Value from Ding's experimentation [1] (s)
+        self.tau2 = kwargs["tau2"] if "tau2" in kwargs else 0.060  # Close value from Ding's experimentation [2] (s)
+        self.km_rest = kwargs["km_rest"] if "km_rest" in kwargs else 0.103  # Value from Ding's experimentation [1] (unitless)
 
     def set_a_rest(self, model, a_rest: MX | float):
         # models is required for bioptim compatibility

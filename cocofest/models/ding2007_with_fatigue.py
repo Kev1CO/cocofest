@@ -33,6 +33,7 @@ class DingModelPulseDurationFrequencyWithFatigue(DingModelPulseDurationFrequency
         model_name: str = "ding_2007_with_fatigue",
         muscle_name: str = None,
         sum_stim_truncation: int = None,
+        **kwargs,
     ):
         super(DingModelPulseDurationFrequencyWithFatigue, self).__init__(time_stim_prev=time_stim_prev,
                          time_current_stim=time_current_stim,
@@ -40,12 +41,12 @@ class DingModelPulseDurationFrequencyWithFatigue(DingModelPulseDurationFrequency
                          muscle_name=muscle_name,
                          sum_stim_truncation=sum_stim_truncation)
         self._with_fatigue = True
-
+        kwargs = {i: kwargs[i] for i in kwargs if kwargs[i] != None}
         # ---- Fatigue models ---- #
-        self.alpha_a = -4.0 * 10e-7  # Value from Ding's experimentation [1] (s^-2)
-        self.alpha_tau1 = 2.1 * 10e-5  # Value from Ding's experimentation [1] (N^-1)
-        self.tau_fat = 127  # Value from Ding's experimentation [1] (s)
-        self.alpha_km = 1.9 * 10e-8  # Value from Ding's experimentation [1] (s^-1.N^-1)
+        self.alpha_a = kwargs["alpha_a"] if "alpha_a" in kwargs else -4.0 * 10e-7  # Value from Ding's experimentation [1] (s^-2)
+        self.alpha_tau1 = kwargs["alpha_tau1"] if "alpha_tau1" in kwargs else 2.1 * 10e-5  # Value from Ding's experimentation [1] (N^-1)
+        self.tau_fat = kwargs["tau_fat"] if "tau_fat" in kwargs else 127  # Value from Ding's experimentation [1] (s)
+        self.alpha_km = kwargs["alpha_km"] if "alpha_km" in kwargs else 1.9 * 10e-8  # Value from Ding's experimentation [1] (s^-1.N^-1)
 
     # ---- Absolutely needed methods ---- #
     @property
@@ -308,7 +309,8 @@ class DingModelPulseDurationFrequencyWithFatigue(DingModelPulseDurationFrequency
         """
         StateConfigure().configure_all_fes_model_states(ocp, nlp, fes_model=self)
         stim_prev = (
-            self._build_t_stim_prev(ocp=ocp, idx=nlp.phase_idx)
+            # self._build_t_stim_prev(ocp=ocp, idx=nlp.phase_idx)
+            self.time_stim_prev + self.time_current_stim
             if "pulse_apparition_time" not in nlp.parameters.keys()
             else None
         )

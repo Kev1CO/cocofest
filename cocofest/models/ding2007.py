@@ -34,6 +34,7 @@ class DingModelPulseDurationFrequency(DingModelFrequency):
         model_name: str = "ding_2007",
         muscle_name: str = None,
         sum_stim_truncation: int = None,
+        **kwargs,
     ):
         super(DingModelPulseDurationFrequency, self).__init__(time_stim_prev=time_stim_prev,
                          time_current_stim=time_current_stim,
@@ -43,14 +44,15 @@ class DingModelPulseDurationFrequency(DingModelFrequency):
         self._with_fatigue = False
         self.impulse_time = None
         # ---- Custom values for the example ---- #
+        kwargs = {i: kwargs[i] for i in kwargs if kwargs[i] != None}
         # ---- Force models ---- #
-        self.a_scale = 4920  # Value from Ding's 2007 article (N/s)
-        self.pd0 = 0.000131405  # Value from Ding's 2007 article (s)
-        self.pdt = 0.000194138  # Value from Ding's 2007 article (s)
-        self.tau1_rest = 0.060601  # Value from Ding's 2003 article (s)
-        self.tau2 = 0.001  # Value from Ding's 2007 article (s)
-        self.km_rest = 0.137  # Value from Ding's 2007 article (unitless)
-        self.tauc = 0.011  # Value from Ding's 2007 article (s)
+        self.a_scale = kwargs["a_scale"] if "a_scale" in kwargs else 4920  # Value from Ding's 2007 article (N/s)
+        self.pd0 = kwargs["pd0"] if "pd0" in kwargs else 0.000131405  # Value from Ding's 2007 article (s)
+        self.pdt = kwargs["pdt"] if "pdt" in kwargs else 0.000194138  # Value from Ding's 2007 article (s)
+        self.tau1_rest = kwargs["tau1_rest"] if "tau1_rest" in kwargs else 0.060601  # Value from Ding's 2003 article (s)
+        self.tau2 = kwargs["tau2"] if "tau2" in kwargs else 0.001  # Value from Ding's 2007 article (s)
+        self.km_rest = kwargs["km_rest"] if "km_rest" in kwargs else 0.137  # Value from Ding's 2007 article (unitless)
+        self.tauc = kwargs["tauc"] if "tauc" in kwargs else 0.011  # Value from Ding's 2007 article (s)
 
     @property
     def identifiable_parameters(self):

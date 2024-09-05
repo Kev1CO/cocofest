@@ -49,7 +49,7 @@ class OcpFes:
 
     @staticmethod
     def prepare_ocp(
-        model: FesModel = None,
+        models: list[FesModel] = None,
         n_stim: int = None,
         n_shooting: int = None,
         final_time: int | float = None,
@@ -66,8 +66,8 @@ class OcpFes:
 
         Parameters
         ----------
-        model : FesModel
-            The model type used for the OCP.
+        models : FesModel
+            The models used for the OCP.
         n_stim : int
             Number of stimulations that will occur during the OCP, also referred to as phases.
         n_shooting : int
@@ -124,7 +124,7 @@ class OcpFes:
         custom_objective = objective["custom"]
 
         OcpFes._sanity_check(
-            model=model,
+            models=models,
             n_stim=n_stim,
             n_shooting=n_shooting,
             final_time=final_time,
@@ -159,14 +159,14 @@ class OcpFes:
             None if force_tracking is None else OcpFes._build_fourier_coefficient(force_tracking)
         )
 
-        if time_min:
-            stim_time = MX.sym('pulse_apparition_time', n_stim, 1)
-            builder = ModelBuilder(model=model, stim_time=stim_time)
-        else:
-            stim_time = [final_time/n_stim * i for i in range(n_stim)]
-            builder = ModelBuilder(model=model, stim_time=stim_time)
-
-        models = builder.build()
+        # if time_min:
+        #     stim_time = MX.sym('pulse_apparition_time', n_stim, 1)
+        #     builder = ModelBuilder(model=model, stim_time=stim_time)
+        # else:
+        #     stim_time = [final_time/n_stim * i for i in range(n_stim)]
+        #     builder = ModelBuilder(model=model, stim_time=stim_time)
+        #
+        # models = builder.build()
 
         # models = [model] * n_stim
         n_shooting = [n_shooting] * n_stim
@@ -179,7 +179,7 @@ class OcpFes:
             time_max=time_max,
         )
         parameters, parameters_bounds, parameters_init, parameter_objectives, constraints = OcpFes._build_parameters(
-            model=model,
+            model=models[0],
             n_stim=n_stim,
             time_min=time_min,
             time_max=time_max,
@@ -202,7 +202,7 @@ class OcpFes:
             )
 
         dynamics = OcpFes._declare_dynamics(models, n_stim)
-        x_bounds, x_init = OcpFes._set_bounds(model, n_stim)
+        x_bounds, x_init = OcpFes._set_bounds(models[0], n_stim)
         objective_functions = OcpFes._set_objective(
             n_stim, n_shooting, force_fourier_coefficient, end_node_tracking, custom_objective, time_min, time_max
         )
@@ -305,7 +305,7 @@ class OcpFes:
 
     @staticmethod
     def _sanity_check(
-        model=None,
+        models=None,
         n_stim=None,
         n_shooting=None,
         final_time=None,
@@ -329,13 +329,17 @@ class OcpFes:
         ode_solver=None,
         n_threads=None,
     ):
-        if not isinstance(model, FesModel):
-            raise TypeError(
-                f"The current model type used is {type(model)}, it must be a FesModel type."
-                f"Current available models are: DingModelFrequency, DingModelFrequencyWithFatigue,"
-                f"DingModelPulseDurationFrequency, DingModelPulseDurationFrequencyWithFatigue,"
-                f"DingModelIntensityFrequency, DingModelIntensityFrequencyWithFatigue"
-            )
+        if isinstance(models, list):
+            for model in models:
+                if not isinstance(model, FesModel):
+                    raise TypeError(
+                        f"The current model type used is {type(model)}, it must be a FesModel type."
+                        f"Current available models are: DingModelFrequency, DingModelFrequencyWithFatigue,"
+                        f"DingModelPulseDurationFrequency, DingModelPulseDurationFrequencyWithFatigue,"
+                        f"DingModelIntensityFrequency, DingModelIntensityFrequencyWithFatigue"
+                    )
+        else:
+            raise TypeError("models must be a list type")
 
         if n_stim:
             if isinstance(n_stim, int):
@@ -343,6 +347,9 @@ class OcpFes:
                     raise ValueError("n_stim must be positive")
             else:
                 raise TypeError("n_stim must be int type")
+
+        if len(models) != n_stim:
+            raise ValueError("The number of stimulations must be equal to the number of models")
 
         if n_shooting:
             if isinstance(n_shooting, int):
@@ -376,14 +383,14 @@ class OcpFes:
             if not isinstance(time_bimapping, bool):
                 raise TypeError("time_bimapping must be bool type")
 
-        if isinstance(model, DingModelPulseDurationFrequency | DingModelPulseDurationFrequencyWithFatigue):
+        if isinstance(models[0], DingModelPulseDurationFrequency | DingModelPulseDurationFrequencyWithFatigue):
             if fixed_pulse_duration is None and [pulse_duration_min, pulse_duration_max].count(None) != 0:
                 raise ValueError("pulse duration or pulse duration min max bounds need to be set for this model")
             if all([fixed_pulse_duration, pulse_duration_min, pulse_duration_max]):
                 raise ValueError("Either pulse duration or pulse duration min max bounds need to be set for this model")
 
             minimum_pulse_duration = (
-                0 if model.pd0 is None else model.pd0
+                0 if models[0].pd0 is None else models[0].pd0
             )  # Set it to 0 if used for the identification process
 
             if fixed_pulse_duration is not None:
@@ -421,7 +428,7 @@ class OcpFes:
             if not isinstance(pulse_duration_bimapping, None | bool):
                 raise NotImplementedError("If added, pulse duration parameter mapping must be a bool type")
 
-        if isinstance(model, DingModelIntensityFrequency | DingModelIntensityFrequencyWithFatigue):
+        if isinstance(models[0], DingModelIntensityFrequency | DingModelIntensityFrequencyWithFatigue):
             if fixed_pulse_intensity is None and [pulse_intensity_min, pulse_intensity_max].count(None) != 0:
                 raise ValueError("Pulse intensity or pulse intensity min max bounds need to be set for this model")
             if all([fixed_pulse_intensity, pulse_intensity_min, pulse_intensity_max]):
@@ -429,9 +436,9 @@ class OcpFes:
                     "Either pulse intensity or pulse intensity min max bounds need to be set for this model"
                 )
 
-            check_for_none_type = [model.cr, model.bs, model.Is]
+            check_for_none_type = [models[0].cr, models[0].bs, models[0].Is]
             minimum_pulse_intensity = (
-                0 if None in check_for_none_type else model.min_pulse_intensity()
+                0 if None in check_for_none_type else models[0].min_pulse_intensity()
             )  # Set it to 0 if used for the identification process
 
             if fixed_pulse_intensity is not None:

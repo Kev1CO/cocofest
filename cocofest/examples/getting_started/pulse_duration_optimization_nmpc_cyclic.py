@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from bioptim import OdeSolver
-from cocofest import OcpFesNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue
+from cocofest import OcpFesNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder
 
 # --- Build target force --- #
 target_time = np.linspace(0, 1, 100)
@@ -22,8 +22,18 @@ n_total_cycles = 8
 minimum_pulse_duration = DingModelPulseDurationFrequencyWithFatigue().pd0
 fes_model = DingModelPulseDurationFrequencyWithFatigue(sum_stim_truncation=10)
 fes_model.alpha_a = -4.0 * 10e-1  # Increasing the fatigue rate to make the fatigue more visible
+
+ding_builder = ModelBuilder(model=DingModelPulseDurationFrequencyWithFatigue,
+                            stim_time=np.linspace(0, 1, 31)[:-1].tolist(),
+                            tau2=None,
+                            a_scale=4000,
+                            alpha_a=-4.0 * 10e-1)
+
+# Set known stim times
+models = ding_builder.build_for_nmpc(final_time=1, n_simultaneous_cycles=3)
+
 nmpc = OcpFesNmpcCyclic(
-    model=fes_model,
+    models=models,
     n_stim=30,
     n_shooting=5,
     final_time=1,

@@ -20,7 +20,7 @@ from ..custom_objectives import CustomObjective
 class OcpFesNmpcCyclic:
     def __init__(
         self,
-        model: FesModel = None,
+        models: list[FesModel] = None,
         n_stim: int = None,
         n_shooting: int = None,
         final_time: int | float = None,
@@ -37,7 +37,7 @@ class OcpFesNmpcCyclic:
         n_threads: int = 1,
     ):
         super(OcpFesNmpcCyclic, self).__init__()
-        self.model = model
+        self.models = models
         self.n_stim = n_stim
         self.n_shooting = n_shooting
         self.final_time = final_time
@@ -89,8 +89,8 @@ class OcpFesNmpcCyclic:
         custom_objective = objective["custom"]
 
         OcpFes._sanity_check(
-            model=self.model,
-            n_stim=self.n_stim,
+            models=self.models,
+            n_stim=self.n_stim * self.n_simultaneous_cycles,
             n_shooting=self.n_shooting,
             final_time=self.final_time,
             pulse_mode=pulse_mode,
@@ -122,7 +122,7 @@ class OcpFesNmpcCyclic:
             None if force_tracking is None else OcpFes._build_fourier_coefficient(force_tracking)
         )
 
-        models = [self.model] * self.n_stim * self.n_simultaneous_cycles
+        # models = [self.model] * self.n_stim * self.n_simultaneous_cycles
 
         final_time_phase = OcpFes._build_phase_time(
             final_time=self.final_time * self.n_simultaneous_cycles,
@@ -132,7 +132,7 @@ class OcpFesNmpcCyclic:
             time_max=time_max,
         )
         parameters, parameters_bounds, parameters_init, parameter_objectives, constraints = OcpFes._build_parameters(
-            model=self.model,
+            model=self.models[0],
             n_stim=self.n_stim * self.n_simultaneous_cycles,
             time_min=time_min,
             time_max=time_max,
@@ -154,8 +154,8 @@ class OcpFesNmpcCyclic:
                 " add parameter to optimize or use the IvpFes method to build your problem"
             )
 
-        dynamics = OcpFes._declare_dynamics(models, self.n_stim * self.n_simultaneous_cycles)
-        x_bounds, x_init = OcpFes._set_bounds(self.model, self.n_stim * self.n_simultaneous_cycles)
+        dynamics = OcpFes._declare_dynamics(self.models, self.n_stim * self.n_simultaneous_cycles)
+        x_bounds, x_init = OcpFes._set_bounds(self.models[0], self.n_stim * self.n_simultaneous_cycles)
         one_cycle_shooting = [self.n_shooting] * self.n_stim
         objective_functions = self._set_objective(
             self.n_stim,
@@ -169,7 +169,7 @@ class OcpFesNmpcCyclic:
         )
         all_cycle_n_shooting = [self.n_shooting] * self.n_stim * self.n_simultaneous_cycles
         self.ocp = OptimalControlProgram(
-            bio_model=models,
+            bio_model=self.models,
             dynamics=dynamics,
             n_shooting=all_cycle_n_shooting,
             phase_time=final_time_phase,
@@ -205,15 +205,10 @@ class OcpFesNmpcCyclic:
             stimulation_time = [0] + list(np.cumsum(sol.ocp.phase_time[: self.n_stim - 1]))
 
         stim_prev = list(np.array(stimulation_time) - self.final_time)
-        if self.previous_stim:
-            update_previous_stim = list(np.array(self.previous_stim) - self.final_time)
-            self.previous_stim = update_previous_stim + stim_prev
-
-        else:
-            self.previous_stim = stim_prev
+        self.previous_stim = list(np.array(self.previous_stim) - self.final_time) if self.previous_stim else stim_prev
 
         for j in range(len(self.ocp.nlp)):
-            self.ocp.nlp[j].model.set_pass_pulse_apparition_time(self.previous_stim)
+            self.ocp.nlp[j].model.time_stim_prev = self.previous_stim + self.ocp.nlp[j].model.time_stim_prev
             # TODO: Does not seem to be taken into account by the next model force estimation
 
     def store_results(self, sol_time, sol_states, sol_parameters, index):
@@ -271,7 +266,7 @@ class OcpFesNmpcCyclic:
             sol_time = sol.decision_time(to_merge=SolutionMerge.NODES, time_alignment=TimeAlignment.STATES)
             sol_parameters = sol.decision_parameters()
             self.store_results(sol_time, sol_states, sol_parameters, i)
-            # self.update_stim(sol)
+            self.update_stim(sol)
             # Todo uncomment when the model is updated to take into account the past stimulation
 
     @staticmethod
