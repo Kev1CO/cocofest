@@ -678,6 +678,7 @@ class OcpFesMsk:
         muscle_force_key,
         time_min,
         time_max,
+        **kwargs,
     ):
         # Creates the objective for our problem
         objective_functions = ObjectiveList()
@@ -724,7 +725,9 @@ class OcpFesMsk:
                     for theta in np.linspace(0, -2 * np.pi, n_shooting[0] * n_stim + 1)
                 ]
             )
-            for phase in range(n_stim):
+            repeat = kwargs["n_simultaneous_cycles"] if "n_simultaneous_cycles" in kwargs else 1
+            circle_coord_list = np.array(list(circle_coord_list) * repeat)
+            for phase in range(n_stim * repeat):
                 objective_functions.add(
                     ObjectiveFcn.Mayer.TRACK_MARKERS,
                     weight=100000,

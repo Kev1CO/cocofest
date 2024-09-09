@@ -9,18 +9,17 @@ Only the middle cycle is kept in the optimization problem, the nmpc cyclic probl
 import numpy as np
 import matplotlib.pyplot as plt
 
-from bioptim import OdeSolver
+from bioptim import OdeSolver, ObjectiveFcn, ObjectiveList
 from cocofest import OcpFesDynamicsNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder, FesMskModel
 
 
 # --- Build nmpc cyclic --- #
-n_total_cycles = 8
+n_total_cycles = 3
+n_stim = 10
 minimum_pulse_duration = DingModelPulseDurationFrequencyWithFatigue().pd0
-fes_model = DingModelPulseDurationFrequencyWithFatigue(sum_stim_truncation=10)
-fes_model.alpha_a = -4.0 * 10e-1  # Increasing the fatigue rate to make the fatigue more visible
 
 ding_builder = ModelBuilder(model=FesMskModel,
-                            stim_time=np.linspace(0, 1, 31)[:-1].tolist(),
+                            stim_time=np.linspace(0, 1, n_stim+1)[:-1].tolist(),
                             tau2=None,
                             a_scale=4000,
                             alpha_a=-4.0 * 10e-1,
@@ -39,9 +38,14 @@ ding_builder = ModelBuilder(model=FesMskModel,
 # Set known stim times
 models = ding_builder.build_for_nmpc(final_time=1)
 
+# --- Minimize residual torque --- #
+objective_functions = ObjectiveList()
+for i in range(n_stim*n_total_cycles):
+    objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1000000, quadratic=True, phase=i)
+
 nmpc = OcpFesDynamicsNmpcCyclic(
     models=models,
-    n_stim=30,
+    n_stim=n_stim,
     n_shooting=5,
     final_time=1,
     pulse_duration={
@@ -50,6 +54,7 @@ nmpc = OcpFesDynamicsNmpcCyclic(
         "bimapping": False,
     },
     objective={"cycling": {"x_center": 0.35, "y_center": 0, "radius": 0.1, "target": "marker"}},
+    with_residual_torque=True,
     n_total_cycles=n_total_cycles,
     n_simultaneous_cycles=3,
     n_cycle_to_advance=1,

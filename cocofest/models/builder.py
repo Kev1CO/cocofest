@@ -85,6 +85,17 @@ class ModelBuilder:
         return self.models
 
     def build_for_nmpc(self, final_time):
+        """
+        Build nmpc models.
+        Parameters
+        ----------
+        final_time: float
+            Final time for a single model. Not the cumulative time for all models.
+
+        Returns
+        -------
+
+        """
         if not isinstance(self.stim_time, list):
             raise TypeError("stim_time must be a list type, can not build nmpc from symbolic")
         nmpc_stim_time = list(np.array([np.array(self.stim_time) + final_time * i for i in range(3)]).flatten())

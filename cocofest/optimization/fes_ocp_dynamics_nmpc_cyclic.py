@@ -244,6 +244,7 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
             muscle_force_key,
             time_min,
             time_max,
+            n_simultaneous_cycles=self.n_simultaneous_cycles
         )
 
         self.ocp = OptimalControlProgram(
@@ -340,6 +341,7 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
     def solve(self):
         for i in range(self.n_total_cycles // self.n_cycle_to_advance):
             sol = self.ocp.solve()
+            sol.graphs()
             sol_states = sol.decision_states(to_merge=[SolutionMerge.NODES])
             self.update_states_bounds(sol_states)
             sol_time = sol.decision_time(to_merge=SolutionMerge.NODES, time_alignment=TimeAlignment.STATES)
