@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from bioptim import OdeSolver, ObjectiveFcn, ObjectiveList, Solver
-from cocofest import OcpFesDynamicsNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder, FesMskModel
+from cocofest import OcpFesDynamicsNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelConfig, ModelBuilder, FesMskModel
 
 
 # --- Build nmpc cyclic --- #
@@ -18,25 +18,27 @@ n_total_cycles = 3
 n_stim = 10
 minimum_pulse_duration = DingModelPulseDurationFrequencyWithFatigue().pd0
 
-ding_builder = ModelBuilder(model=FesMskModel,
-                            stim_time=np.linspace(0, 1, n_stim+1)[:-1].tolist(),
-                            tau2=None,
-                            a_scale=4000,
-                            alpha_a=-4.0 * 10e-1,
-                            biorbd_model_path="../msk_models/simplified_UL_Seth.bioMod",
-                            fes_muscle_models=[
-                                DingModelPulseDurationFrequencyWithFatigue(muscle_name="DeltoideusClavicle_A"),
-                                DingModelPulseDurationFrequencyWithFatigue(muscle_name="DeltoideusScapula_P"),
-                                DingModelPulseDurationFrequencyWithFatigue(muscle_name="TRIlong"),
-                                DingModelPulseDurationFrequencyWithFatigue(muscle_name="BIC_long"),
-                                DingModelPulseDurationFrequencyWithFatigue(muscle_name="BIC_brevis"),
-                            ],
-                            activate_force_length_relationship=True,
-                            activate_force_velocity_relationship=True,
-                            )
+delt_ant = DingModelPulseDurationFrequencyWithFatigue(muscle_name="DeltoideusClavicle_A", a_scale=5000, alpha_a=-4.0 * 10e-1, alpha_tau1=2.1 * 10e-3)
+delt_post = DingModelPulseDurationFrequencyWithFatigue(muscle_name="DeltoideusScapula_P")
+triceps = DingModelPulseDurationFrequencyWithFatigue(muscle_name="TRIlong")
+biceps = DingModelPulseDurationFrequencyWithFatigue(muscle_name="BIC_long")
+biceps_short = DingModelPulseDurationFrequencyWithFatigue(muscle_name="BIC_brevis")
 
-# Set known stim times
-models = ding_builder.build_for_nmpc(final_time=1)
+model_configuration = ModelConfig(model=FesMskModel,
+                                  biorbd_model_path="../msk_models/simplified_UL_Seth.bioMod",
+                                  fes_muscle_models=[
+                                    delt_ant,
+                                    delt_post,
+                                    triceps,
+                                    biceps,
+                                    biceps_short,
+                                  ],
+                                  activate_force_length_relationship=True,
+                                  activate_force_velocity_relationship=True,
+                                  )
+
+ding_builder = ModelBuilder(config=model_configuration, stim_time=np.linspace(0, 1, n_stim+1)[:-1].tolist())
+models = ding_builder.build(cycle_final_time=1)
 
 # --- Minimize residual torque --- #
 objective_functions = ObjectiveList()
@@ -64,7 +66,7 @@ nmpc = OcpFesDynamicsNmpcCyclic(
 )
 
 nmpc.prepare_nmpc()
-nmpc.solve(solver= Solver.IPOPT(show_online_optim=False, _max_iter=10000)
+nmpc.solve(solver=Solver.IPOPT(show_online_optim=False, _max_iter=10000))
 
 # --- Show results --- #
 time = [j for sub in nmpc.result["time"] for j in sub]
