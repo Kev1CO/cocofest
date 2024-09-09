@@ -282,6 +282,9 @@ class OcpFes:
             "force_tracking": None,
             "end_node_tracking": None,
             "cycling": None,
+            "minimize_muscle_force": None,
+            "minimize_muscle_fatigue": None,
+            "minimize_residual_torque": None,
             "custom": None,
         }
         dict_list = [pulse_event, pulse_duration, pulse_intensity, objective]

@@ -9,8 +9,8 @@ Only the middle cycle is kept in the optimization problem, the nmpc cyclic probl
 import numpy as np
 import matplotlib.pyplot as plt
 
-from bioptim import OdeSolver
-from cocofest import OcpFesNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder
+from bioptim import OdeSolver, Solver
+from cocofest import OcpFesNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder, ModelConfig
 
 # --- Build target force --- #
 target_time = np.linspace(0, 1, 100)
@@ -20,17 +20,13 @@ force_tracking = [target_time, target_force]
 # --- Build nmpc cyclic --- #
 n_total_cycles = 8
 minimum_pulse_duration = DingModelPulseDurationFrequencyWithFatigue().pd0
-fes_model = DingModelPulseDurationFrequencyWithFatigue(sum_stim_truncation=10)
-fes_model.alpha_a = -4.0 * 10e-1  # Increasing the fatigue rate to make the fatigue more visible
 
-ding_builder = ModelBuilder(model=DingModelPulseDurationFrequencyWithFatigue,
-                            stim_time=np.linspace(0, 1, 31)[:-1].tolist(),
-                            tau2=None,
-                            a_scale=4000,
-                            alpha_a=-4.0 * 10e-1)
-
-# Set known stim times
-models = ding_builder.build_for_nmpc(final_time=1, n_simultaneous_cycles=3)
+model_configuration = ModelConfig(model=DingModelPulseDurationFrequencyWithFatigue,
+                                  a_scale=4000,
+                                  alpha_a=-4.0 * 10e-1)
+ding_builder = ModelBuilder(config=model_configuration,
+                            stim_time=np.linspace(0, 1, 31)[:-1].tolist())
+models = ding_builder.build(cycle_final_time=1)
 
 nmpc = OcpFesNmpcCyclic(
     models=models,
@@ -52,7 +48,7 @@ nmpc = OcpFesNmpcCyclic(
 )
 
 nmpc.prepare_nmpc()
-nmpc.solve()
+nmpc.solve(Solver.IPOPT(show_online_optim=False, _max_iter=10000))
 
 # --- Show results --- #
 time = [j for sub in nmpc.result["time"] for j in sub]

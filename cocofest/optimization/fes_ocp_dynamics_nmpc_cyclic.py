@@ -8,7 +8,6 @@ from bioptim import (
     OdeSolver,
     Node,
     OptimalControlProgram,
-    ControlType,
     TimeAlignment,
 )
 
@@ -36,8 +35,6 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
         with_residual_torque: bool = None,
         activate_force_length_relationship: bool = None,
         activate_force_velocity_relationship: bool = None,
-        minimize_muscle_fatigue: bool = None,
-        minimize_muscle_force: bool = None,
         custom_constraint: list = None,
         n_total_cycles: int = None,
         n_simultaneous_cycles: int = None,
@@ -70,8 +67,6 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
         self.with_residual_torque = with_residual_torque
         self.activate_force_length_relationship = activate_force_length_relationship
         self.activate_force_velocity_relationship = activate_force_velocity_relationship
-        self.minimize_muscle_fatigue = minimize_muscle_fatigue
-        self.minimize_muscle_force = minimize_muscle_force
         self.custom_constraint = custom_constraint
         self.warm_start = False
         self.ocp = None
@@ -113,6 +108,9 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
         force_tracking = objective["force_tracking"]
         end_node_tracking = objective["end_node_tracking"]
         cycling_objective = objective["cycling"]
+        minimize_muscle_force = objective["minimize_muscle_force"]
+        minimize_muscle_fatigue = objective["minimize_muscle_fatigue"]
+        minimize_residual_torque = objective["minimize_residual_torque"]
         custom_objective = objective["custom"]
         key_in_dict = "q_tracking" in objective
         q_tracking = objective["q_tracking"] if key_in_dict else None
@@ -153,8 +151,8 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
             with_residual_torque=self.with_residual_torque,
             activate_force_length_relationship=self.activate_force_length_relationship,
             activate_force_velocity_relationship=self.activate_force_velocity_relationship,
-            minimize_muscle_fatigue=self.minimize_muscle_fatigue,
-            minimize_muscle_force=self.minimize_muscle_force,
+            minimize_muscle_fatigue=minimize_muscle_fatigue,
+            minimize_muscle_force=minimize_muscle_force,
         )
 
         OcpFes._sanity_check_frequency(n_stim=self.n_stim, final_time=self.final_time, frequency=frequency, round_down=round_down)
@@ -239,8 +237,9 @@ class OcpFesDynamicsNmpcCyclic(OcpFesNmpcCyclic):
             cycling_objective,
             custom_objective,
             q_fourier_coef,
-            self.minimize_muscle_fatigue,
-            self.minimize_muscle_force,
+            minimize_muscle_fatigue,
+            minimize_muscle_force,
+            minimize_residual_torque,
             muscle_force_key,
             time_min,
             time_max,

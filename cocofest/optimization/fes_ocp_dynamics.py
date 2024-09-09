@@ -50,8 +50,6 @@ class OcpFesMsk:
         with_residual_torque: bool = False,
         activate_force_length_relationship: bool = False,
         activate_force_velocity_relationship: bool = False,
-        minimize_muscle_fatigue: bool = False,
-        minimize_muscle_force: bool = False,
         use_sx: bool = True,
         warm_start: bool = False,
         ode_solver: OdeSolverBase = OdeSolver.RK4(n_integration_steps=1),
@@ -98,10 +96,6 @@ class OcpFesMsk:
             If the force length relationship is used.
         activate_force_velocity_relationship : bool
             If the force velocity relationship is used.
-        minimize_muscle_fatigue : bool
-            Minimize the muscle fatigue.
-        minimize_muscle_force : bool
-            Minimize the muscle force.
         use_sx : bool
             The nature of the CasADi variables. MX are used if False.
         warm_start : bool
@@ -147,6 +141,9 @@ class OcpFesMsk:
         force_tracking = objective["force_tracking"]
         end_node_tracking = objective["end_node_tracking"]
         cycling_objective = objective["cycling"]
+        minimize_muscle_force = objective["minimize_muscle_force"]
+        minimize_muscle_fatigue = objective["minimize_muscle_fatigue"]
+        minimize_residual_torque = objective["minimize_residual_torque"]
         custom_objective = objective["custom"]
         key_in_dict = "q_tracking" in objective
         q_tracking = objective["q_tracking"] if key_in_dict else None
@@ -286,6 +283,7 @@ class OcpFesMsk:
             q_fourier_coef,
             minimize_muscle_fatigue,
             minimize_muscle_force,
+            minimize_residual_torque,
             muscle_force_key,
             time_min,
             time_max,
@@ -675,6 +673,7 @@ class OcpFesMsk:
         q_fourier_coef,
         minimize_muscle_fatigue,
         minimize_muscle_force,
+        minimize_residual_torque,
         muscle_force_key,
         time_min,
         time_max,
@@ -719,14 +718,15 @@ class OcpFesMsk:
             x_center = cycling_objective["x_center"]
             y_center = cycling_objective["y_center"]
             radius = cycling_objective["radius"]
-            circle_coord_list = np.array(
+            all_node_circle_coord_list = np.array(
                 [
                     get_circle_coord(theta, x_center, y_center, radius)[:-1]
                     for theta in np.linspace(0, -2 * np.pi, n_shooting[0] * n_stim + 1)
                 ]
             )
             repeat = kwargs["n_simultaneous_cycles"] if "n_simultaneous_cycles" in kwargs else 1
-            circle_coord_list = np.array(list(circle_coord_list) * repeat)
+            circle_coord_list = np.array(list(all_node_circle_coord_list[:-1]) * repeat)
+            circle_coord_list = np.append(circle_coord_list, np.array([all_node_circle_coord_list[-1]]), 0)
             for phase in range(n_stim * repeat):
                 objective_functions.add(
                     ObjectiveFcn.Mayer.TRACK_MARKERS,
@@ -756,17 +756,19 @@ class OcpFesMsk:
                         )
 
         if minimize_muscle_fatigue:
+            coefficient = kwargs["n_simultaneous_cycles"] if "n_simultaneous_cycles" in kwargs else 1
             objective_functions.add(
                 CustomObjective.minimize_overall_muscle_fatigue,
                 custom_type=ObjectiveFcn.Mayer,
                 node=Node.END,
                 quadratic=True,
                 weight=-1,
-                phase=n_stim - 1,
+                phase=n_stim * coefficient - 1,
             )
 
         if minimize_muscle_force:
-            for i in range(n_stim):
+            repeat = kwargs["n_simultaneous_cycles"] if "n_simultaneous_cycles" in kwargs else 1
+            for i in range(n_stim * repeat):
                 objective_functions.add(
                     CustomObjective.minimize_overall_muscle_force_production,
                     custom_type=ObjectiveFcn.Lagrange,
@@ -774,6 +776,13 @@ class OcpFesMsk:
                     weight=1,
                     phase=i,
                 )
+
+        if minimize_residual_torque:
+            repeat = kwargs["n_simultaneous_cycles"] if "n_simultaneous_cycles" in kwargs else 1
+            weight = minimize_residual_torque["weight"] if "weight" in minimize_residual_torque else 100
+            quadratic = minimize_residual_torque["quadratic"] if "quadratic" in minimize_residual_torque else True
+            for i in range(n_stim * repeat):
+                objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=weight, quadratic=quadratic, phase=i)
 
         if time_min and time_max:
             for i in range(n_stim):

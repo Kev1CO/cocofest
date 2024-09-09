@@ -40,11 +40,6 @@ model_configuration = ModelConfig(model=FesMskModel,
 ding_builder = ModelBuilder(config=model_configuration, stim_time=np.linspace(0, 1, n_stim+1)[:-1].tolist())
 models = ding_builder.build(cycle_final_time=1)
 
-# --- Minimize residual torque --- #
-objective_functions = ObjectiveList()
-for i in range(n_stim*n_total_cycles):
-    objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=100, quadratic=True, phase=i)
-
 nmpc = OcpFesDynamicsNmpcCyclic(
     models=models,
     n_stim=n_stim,
@@ -55,7 +50,9 @@ nmpc = OcpFesDynamicsNmpcCyclic(
         "max": 0.0006,
         "bimapping": False,
     },
-    objective={"cycling": {"x_center": 0.35, "y_center": 0, "radius": 0.1, "target": "marker"}},
+    objective={"cycling": {"x_center": 0.35, "y_center": 0, "radius": 0.1, "target": "marker"},
+               "minimize_muscle_fatigue": True,
+               "minimize_residual_torque": {"weight": 100, "quadratic": True}},
     with_residual_torque=True,
     n_total_cycles=n_total_cycles,
     n_simultaneous_cycles=3,
