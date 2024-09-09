@@ -255,9 +255,9 @@ class OcpFesNmpcCyclic:
                 ]
         return
 
-    def solve(self):
+    def solve(self, solver):
         for i in range(self.n_total_cycles // self.n_cycle_to_advance):
-            sol = self.ocp.solve()
+            sol = self.ocp.solve(solver)
             sol_states = sol.decision_states(to_merge=[SolutionMerge.NODES])
             self.update_states_bounds(sol_states)
             sol_time = sol.decision_time(to_merge=SolutionMerge.NODES, time_alignment=TimeAlignment.STATES)

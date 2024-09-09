@@ -9,7 +9,7 @@ Only the middle cycle is kept in the optimization problem, the nmpc cyclic probl
 import numpy as np
 import matplotlib.pyplot as plt
 
-from bioptim import OdeSolver, ObjectiveFcn, ObjectiveList
+from bioptim import OdeSolver, ObjectiveFcn, ObjectiveList, Solver
 from cocofest import OcpFesDynamicsNmpcCyclic, DingModelPulseDurationFrequencyWithFatigue, ModelBuilder, FesMskModel
 
 
@@ -41,7 +41,7 @@ models = ding_builder.build_for_nmpc(final_time=1)
 # --- Minimize residual torque --- #
 objective_functions = ObjectiveList()
 for i in range(n_stim*n_total_cycles):
-    objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1000000, quadratic=True, phase=i)
+    objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=100, quadratic=True, phase=i)
 
 nmpc = OcpFesDynamicsNmpcCyclic(
     models=models,
@@ -64,7 +64,7 @@ nmpc = OcpFesDynamicsNmpcCyclic(
 )
 
 nmpc.prepare_nmpc()
-nmpc.solve()
+nmpc.solve(solver= Solver.IPOPT(show_online_optim=False, _max_iter=10000)
 
 # --- Show results --- #
 time = [j for sub in nmpc.result["time"] for j in sub]
