@@ -5,17 +5,25 @@ from copy import deepcopy
 import heapq
 import pickle
 
+from biorbd import Model
+
 from pyomeca import Analogs
 
 
 class C3dToMuscleForce:
     def __init__(self):
-        pass
+        self.biceps_moment_arm = None
+        self.Qddot = None
+        self.Qdot = None
+        self.Q = None
+        self.model = None
+        self.default_index = {"sensor.V1":0, "sensor.V2":1, "sensor.V3":2, "sensor.V4":3, "sensor.V5":4, "sensor.V6":5, "Electric Current.Channel_1_m":6, "Electric Current.Channel_5":7}
 
     def extract_force_from_c3d(
         self, c3d_path=None, calibration_matrix_path=None, for_id=True, saving_pickle_path=None, **kwargs
     ):
-
+        time_list = []
+        stim_index_list = []
         # Conversion into list
         c3d_path_list = [c3d_path] if isinstance(c3d_path, str) else c3d_path
 
@@ -50,17 +58,17 @@ class C3dToMuscleForce:
                 else raw_data
             )
 
-            if "input_channel" in kwargs:
-                filtered_data = self.reindex_2d_list(filtered_data, kwargs["input_channel"])
+            # lst_index = self.set_index(raw_data)
+            # filtered_data = self.reindex_2d_list(filtered_data, lst_index)
 
             # Get force from voltage data
             if calibration_matrix_path:
                 self.calibration_matrix = self.read_text_file_to_matrix(calibration_matrix_path)
-                filtered_6d_force = self.calibration_matrix @ filtered_data[:6]
+                filtered_6d_force = self.calibration_matrix @ filtered_data[2:]
             else:
                 if "already_calibrated" in kwargs:
                     if kwargs["already_calibrated"] is True:
-                        filtered_6d_force = filtered_data[:6]
+                        filtered_6d_force = filtered_data[2:]
                     else:
                         raise ValueError("already_calibrated must be either True or False")
                 else:
@@ -69,7 +77,16 @@ class C3dToMuscleForce:
                         "If not, please provide a calibration matrix path"
                     )
 
-            filtered_6d_force = self.set_zero_level(filtered_6d_force, average_on=[1000, 3000])
+            # plt.plot(filtered_6d_force[0])
+            # plt.title("Avant set_zero_level")
+            # plt.show()
+
+            filtered_6d_force = self.set_zero_level(filtered_6d_force, average_on=[20000, 50000])
+            stim_data = self.set_zero_level(raw_data[1].data, average_on=[20000, 50000])
+
+            # plt.plot(filtered_6d_force[0])
+            # plt.title("Après set_zero_level")
+            # plt.show()
 
             if for_id:
                 check_stimulation = kwargs["check_stimulation"] if "check_stimulation" in kwargs else None
@@ -78,17 +95,37 @@ class C3dToMuscleForce:
                 if "average_time_difference" in kwargs and "frequency_acquisition" in kwargs:
                     stimulation_time, peaks = self.get_stim(
                         time,
-                        raw_data[6].data,
+                        stim_data,
                         average_time_difference=kwargs["average_time_difference"],
                         frequency_acquisition=kwargs["frequency_acquisition"],
                         check_stimulation=check_stimulation,
                     )
                 else:
-                    stimulation_time, peaks = self.get_stim(time, raw_data[6].data, check_stimulation=check_stimulation)
+                    stimulation_time, peaks = self.get_stim(time, stim_data, check_stimulation=check_stimulation)
                 # Get the data from 6D file
                 sliced_time, sliced_data = self.slice_data(time, filtered_6d_force, peaks)
                 temp_time = deepcopy(sliced_time)
                 temp_data = deepcopy(sliced_data)
+
+                time_list.append(temp_time)
+                stim_index_list.append(peaks)
+
+                # stim = []
+                # for i in stimulation_time:
+                #     stim.append(stim_data[int(i * 10000)])
+                # plt.plot(time, stim_data, color='blue')
+                # plt.scatter(stimulation_time, stim, color='red')
+                # plt.show()
+
+                # force_stim = []
+                # for i in stimulation_time:
+                #     force_stim.append(filtered_6d_force[0, int(i*10000)])
+                # plt.plot(time, filtered_6d_force[0], color='blue')
+                # plt.scatter(stimulation_time, force_stim, color='red')
+                # plt.show()
+
+                # plt.plot(sliced_time, sliced_data[0])
+                # plt.show()
 
                 if "plot" in kwargs:
                     if kwargs["plot"]:
@@ -138,6 +175,7 @@ class C3dToMuscleForce:
                 }
                 with open(save_pickle_path, "wb") as file:
                     pickle.dump(dictionary, file)
+        return time_list, stim_index_list
 
     @staticmethod
     def read_text_file_to_matrix(file_path):
@@ -168,6 +206,14 @@ class C3dToMuscleForce:
         except Exception as e:
             print(f"An error occurred: {str(e)}")
             return None
+
+    def set_index(self, raw_data):
+        lst_index = []
+        for i in range(len(raw_data.channel)):
+            index_name = raw_data.channel[i].item()
+            lst_index.append(self.default_index[index_name])
+
+        return lst_index
 
     @staticmethod
     def reindex_2d_list(data, new_indices):
@@ -258,19 +304,22 @@ class C3dToMuscleForce:
                 data[:, temp_stimulation_peaks[0] :][i] = data[:, temp_stimulation_peaks[0] :][i] - substact_to_zero[i]
 
             first = temp_stimulation_peaks[0]
+            # print(temp_stimulation_peaks)
+            # print(len(temp_stimulation_peaks))
+            # print(first)
             last = (
                 next((x for x, val in enumerate(-data[main_axis, first:]) if val < 0), len(data[main_axis, first:]))
                 + first
             )
 
-            x.append(data[0, first:last].tolist())
-            y.append(data[1, first:last].tolist())
-            z.append(data[2, first:last].tolist())
-            mx.append(data[3, first:last].tolist())
-            my.append(data[4, first:last].tolist())
-            mz.append(data[5, first:last].tolist())
+            x.extend(data[0, first:last].tolist())
+            y.extend(data[1, first:last].tolist())
+            z.extend(data[2, first:last].tolist())
+            mx.extend(data[3, first:last].tolist())
+            my.extend(data[4, first:last].tolist())
+            mz.extend(data[5, first:last].tolist())
 
-            sliced_time.append(time[first:last])
+            sliced_time.extend(time[first:last])
 
             temp_stimulation_peaks = [peaks for peaks in temp_stimulation_peaks if peaks > last]
         sliced_data = [x, y, z, mx, my, mz]
@@ -463,11 +512,89 @@ class C3dToMuscleForce:
 
         return norm_force
 
+    @staticmethod
+    def local_sensor_to_local_hand(sensor_data: np.array) -> np.array:
+        """
+        This function is used to convert the sensor data from the local axis to the local hand axis.
+        This a rotation along x axis whatever the elbow angle
+        Parameters
+        ----------
+        sensor_data
+
+        Returns
+        -------
+
+        """
+        rotation_angle = np.pi / 2
+        rotation_matrix = np.array([[1, 0, 0], [0, np.cos(rotation_angle), - np.sin(rotation_angle)], [0, np.sin(rotation_angle, np.cos[rotation_angle])]])
+        new_sensor_data = rotation_matrix @ sensor_data
+
+        return new_sensor_data
+
+    @staticmethod
+    def local_hand_to_local(force_data: np.array, elbow_angle: float) -> np.array:
+        """
+        This function is used to convert the sensor data from the local hand axis to the local muscle axis.
+        This is a rotation of elbow angle along z axis
+        Parameters
+        ----------
+        force_data
+        elbow_angle: float
+            Must be in radians
+
+        Returns
+        -------
+
+        """
+        rotation_angle = np.pi - np.radians(elbow_angle)
+        rotation_matrix = np.array([[np.cos(rotation_angle), - np.sin(rotation_angle), 0], [np.sin(rotation_angle), np.cos(rotation_angle), 0], [0, 0, 1]])
+        new_force_data = rotation_matrix @ force_data
+
+        return new_force_data
+
+    def load_model(self, forearm_angle: int | float):
+        # Load a predefined model
+        self.model = Model("model_msk/simplified_UL_Seth.bioMod")
+        # Get number of q, qdot, qddot
+        nq = self.model.nbQ()
+        nqdot = self.model.nbQdot()
+        nqddot = self.model.nbQddot()
+
+        # Choose a position/velocity/acceleration to compute dynamics from
+        if nq != 2:
+            raise ValueError("The number of degrees of freedom has changed.")  # 0
+        self.Q = np.array([0.0, np.radians(forearm_angle)])  # "0" arm along body and "1.57" 90° forearm position  |__.
+        self.Qdot = np.zeros((nqdot,))  # speed null
+        self.Qddot = np.zeros((nqddot,))  # acceleration null
+
+        # Biceps moment arm
+        self.model.musclesLengthJacobian(self.Q).to_array()
+        if self.model.muscleNames()[1].to_string() != "BIClong":
+            raise ValueError("Biceps muscle index as changed.")  # biceps is index 1 in the model
+        self.biceps_moment_arm = self.model.musclesLengthJacobian(self.Q).to_array()[1][1]
+
+        # Expressing the external force array [Mx, My, Mz, Fx, Fy, Fz]
+        # experimentally applied at the hand into the last joint
+        if self.model.segments()[15].name().to_string() != "r_ulna_radius_hand_r_elbow_flex":
+            raise ValueError("r_ulna_radius_hand_r_elbow_flex index as changed.")
+
+        if self.model.markerNames()[3].to_string() != "r_ulna_radius_hand":
+            raise ValueError("r_ulna_radius_hand marker index as changed.")
+
+        if self.model.markerNames()[4].to_string() != "hand":
+            raise ValueError("hand marker index as changed.")
+
+    def get_muscle_positions(self):
+        pass
+
+    def project_force_on_muscle(self):
+        pass
+
     def force_transfer(self, force):
         pass
 
     def get_force(self, c3d_path, calibration_matrix_path, saving_pickle_path, for_id=True):
-        self.extract_force_from_c3d(
+        time_list, stim_index_list = self.extract_force_from_c3d(
             c3d_path=c3d_path,
             calibration_matrix_path=calibration_matrix_path,
             for_id=for_id,
@@ -475,19 +602,19 @@ class C3dToMuscleForce:
         )
         measured_force, stim_time = self.read_pkl_to_force_vector(pickle_path=saving_pickle_path)
         # muscle_force = self.force_transfer(measured_force)
-        norm_muscle_force = self.norm_force_fun(measured_force)
+        norm_muscle_force = self.norm_force_fun(measured_force) * 10
 
-        return norm_muscle_force, stim_time
+        return norm_muscle_force, stim_time, time_list, stim_index_list
 
 
 if __name__ == "__main__":
     c3d_converter = C3dToMuscleForce()
-    norm_muscle_force, stim_time = c3d_converter.get_force(
+    norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
         c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\exp_id\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
         calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\matrix.txt",
         saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\id_exp_florine_50Hz_400us_15mA_test1.pkl",
         for_id=True,
     )
-
-    plt.plot(stim_time, norm_muscle_force)
+    time = np.linspace(0, len(norm_muscle_force), len(norm_muscle_force))
+    plt.plot(time, norm_muscle_force)
     plt.show()

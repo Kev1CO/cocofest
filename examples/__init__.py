@@ -1,1 +1,1 @@
-from data_process.c3d_to_muscle_force import C3dToMuscleForce
+from .data_process.c3d_to_muscle_force import C3dToMuscleForce

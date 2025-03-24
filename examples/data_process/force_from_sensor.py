@@ -71,7 +71,7 @@ class ForceSensorToMuscleForce:  # TODO : Enable several muscles (biceps, tricep
                 with open(save_pickle_path, "wb") as file:
                     pickle.dump(dictionary, file)
 
-    def load_data(self, pickle_path, forearm_angle):
+    def load_data(self, pickle_path):
         # --- Retrieving pickle data --- #
         with open(pickle_path, "rb") as f:
             data = pickle.load(f)

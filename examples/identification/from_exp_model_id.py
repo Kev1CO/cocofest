@@ -11,17 +11,22 @@ from cocofest import (
     DingModelPulseWidthFrequency,
     IvpFes,
     ModelMaker,
-    OcpFesId,
+    OcpFesId, FES_plot,
 )
+
 from cocofest.identification.identification_method import DataExtraction
 
-from examples import C3dToMuscleForce
+from examples.data_process.c3d_to_muscle_force import C3dToMuscleForce
 
 
-def get_force_and_stim_time(c3d_path, calibration_matrix_path, pickle_saving_path):
-    norm_muscle_force, stim_time = C3dToMuscleForce.get_force(
-        c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=pickle_saving_path
-    )
+def set_time_to_zero(stim_time, time_list):
+    first_stim = stim_time[0]
+    if first_stim > time_list[0]:
+        raise ValueError("Time list should begin at the first stimulation")
+    stim_time = list(np.array(stim_time) - first_stim)
+    time_list = list(np.array(time_list) - first_stim)
+
+    return stim_time, time_list
 
 
 def prepare_ocp(
@@ -29,22 +34,17 @@ def prepare_ocp(
     final_time,
     pulse_width_values,
     key_parameter_to_identify,
-    c3d_path,
-    calibration_matrix_path,
-    saving_pickle_path,
+    tracked_data,
+    stim_time,
+    time_list,
+    stim_index
 ):
-    norm_muscle_force, stim_time = C3dToMuscleForce.get_force(
-        c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
-    )
 
-    n_shooting = model.get_n_shooting(final_time)
-    force_at_node = DataExtraction.force_at_node_in_ocp(stim_time, norm_muscle_force, n_shooting, final_time)
+    n_shooting = len(stim_time)
 
-    plt.plot(stim_time, norm_muscle_force, color="blue", label="muscle_force")
-    plt.plot(stim_time, force_at_node, color="red", label="force at node")
+    force_at_node = np.interp(stim_time, time_list[0], tracked_data).tolist()
 
-    plt.legend()
-    plt.show()
+    # numerical_data_time_series, stim_idx_at_node_list = {'stim_time': np.array(stim_time)}, stim_index
 
     numerical_data_time_series, stim_idx_at_node_list = model.get_numerical_data_time_series(n_shooting, final_time)
     dynamics = OcpFesId.declare_dynamics(model=model, numerical_data_timeseries=numerical_data_time_series)
@@ -66,7 +66,7 @@ def prepare_ocp(
         key="F",
         weight=1,
         target=np.array(force_at_node)[np.newaxis, :],
-        node=Node.ALL,
+        node=Node.ALL_SHOOTING,
         quadratic=True,
     )
     additional_key_settings = OcpFesId.set_default_values(model)
@@ -95,3 +95,54 @@ def prepare_ocp(
         ode_solver=OdeSolver.RK4(n_integration_steps=10),
         n_threads=20,
     )
+
+
+def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
+    # Parameters for simulation and identification
+    final_time = 10
+    pulse_width_values = [0.0004] * 500
+
+    c3d_converter = C3dToMuscleForce()
+    norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
+        c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
+    )
+
+    stim_time, time_list[0] = set_time_to_zero(stim_time, time_list[0])
+
+    model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
+
+    ocp = prepare_ocp(
+        model,
+        final_time,
+        pulse_width_values,
+        tracked_data=norm_muscle_force,
+        stim_time=stim_time,
+        time_list=time_list,
+        stim_index=stim_index_list,
+        key_parameter_to_identify=[
+            "km_rest",
+            "tau1_rest",
+            "tau2",
+            "pd0",
+            "pdt",
+            "a_scale",
+        ],
+    )
+    sol = ocp.solve()
+
+    if plot:
+        default_model = DingModelPulseWidthFrequency()
+
+        FES_plot(data=sol).plot(
+            title="Identification of Ding 2007 parameters",
+            tracked_data=norm_muscle_force,
+            default_model=default_model,
+            show_bounds=False,
+            show_stim=False,
+        )
+
+
+if __name__ == "__main__":
+    main(c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\exp_id\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
+         calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\matrix.txt",
+         saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\id_exp_florine_50Hz_400us_15mA_test1.pkl")
