@@ -35,16 +35,14 @@ def prepare_ocp(
     pulse_width_values,
     key_parameter_to_identify,
     tracked_data,
-    stim_time,
-    time_list,
-    stim_index
+    stim_time
 ):
 
     n_shooting = len(stim_time)
 
-    force_at_node = np.interp(stim_time, time_list[0], tracked_data).tolist()
+    stim_time_1 = stim_time + [2 * stim_time[-1]-stim_time[-2]]
 
-    # numerical_data_time_series, stim_idx_at_node_list = {'stim_time': np.array(stim_time)}, stim_index
+    force_at_node = np.interp(stim_time_1, tracked_data["time"], tracked_data["force"]).tolist()
 
     numerical_data_time_series, stim_idx_at_node_list = model.get_numerical_data_time_series(n_shooting, final_time)
     dynamics = OcpFesId.declare_dynamics(model=model, numerical_data_timeseries=numerical_data_time_series)
@@ -66,10 +64,11 @@ def prepare_ocp(
         key="F",
         weight=1,
         target=np.array(force_at_node)[np.newaxis, :],
-        node=Node.ALL_SHOOTING,
+        node=Node.ALL,
         quadratic=True,
     )
     additional_key_settings = OcpFesId.set_default_values(model)
+
     parameters, parameters_bounds, parameters_init = OcpFesId.set_parameters(
         parameter_to_identify=key_parameter_to_identify,
         parameter_setting=additional_key_settings,
@@ -109,16 +108,16 @@ def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
 
     stim_time, time_list[0] = set_time_to_zero(stim_time, time_list[0])
 
+    tracked_data = {"time":time_list[0], "force":norm_muscle_force}
+
     model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
 
     ocp = prepare_ocp(
         model,
         final_time,
         pulse_width_values,
-        tracked_data=norm_muscle_force,
+        tracked_data=tracked_data,
         stim_time=stim_time,
-        time_list=time_list,
-        stim_index=stim_index_list,
         key_parameter_to_identify=[
             "km_rest",
             "tau1_rest",
@@ -135,7 +134,7 @@ def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
 
         FES_plot(data=sol).plot(
             title="Identification of Ding 2007 parameters",
-            tracked_data=norm_muscle_force,
+            tracked_data=tracked_data,
             default_model=default_model,
             show_bounds=False,
             show_stim=False,
@@ -143,6 +142,6 @@ def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
 
 
 if __name__ == "__main__":
-    main(c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\exp_id\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
-         calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\matrix.txt",
-         saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\id_exp_florine_50Hz_400us_15mA_test1.pkl")
+    main(c3d_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/id_exp_florine_50Hz_400us_15mA_test1.c3d",
+         calibration_matrix_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/matrix.txt",
+         saving_pickle_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/id_exp_florine_50Hz_400us_15mA_test1.pkl")

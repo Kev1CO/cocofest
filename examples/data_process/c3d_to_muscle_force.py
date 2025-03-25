@@ -103,7 +103,7 @@ class C3dToMuscleForce:
                 else:
                     stimulation_time, peaks = self.get_stim(time, stim_data, check_stimulation=check_stimulation)
                 # Get the data from 6D file
-                sliced_time, sliced_data = self.slice_data(time, filtered_6d_force, peaks)
+                sliced_time, sliced_data = self.slice_data_2(time, filtered_6d_force, peaks)
                 temp_time = deepcopy(sliced_time)
                 temp_data = deepcopy(sliced_data)
 
@@ -268,6 +268,24 @@ class C3dToMuscleForce:
                     else data[i] - np.mean(data[i][:average_length])
                 )
             return data
+
+    @staticmethod
+    def slice_data_2(time, data, stimulation_peaks):
+        first = stimulation_peaks[0]
+        last = first + 10000 * 20
+
+        x = data[0, first:last]
+        y = data[1, first:last]
+        z = data[2, first:last]
+        mx = data[3, first:last]
+        my = data[4, first:last]
+        mz = data[5, first:last]
+
+        sliced_time = time[first:last]
+        sliced_data = [x, y, z, mx, my, mz]
+
+        return sliced_time, sliced_data
+
 
     @staticmethod
     def slice_data(time, data, stimulation_peaks, main_axis=0):
@@ -610,9 +628,9 @@ class C3dToMuscleForce:
 if __name__ == "__main__":
     c3d_converter = C3dToMuscleForce()
     norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
-        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\exp_id\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
-        calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\matrix.txt",
-        saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\id_exp_florine_50Hz_400us_15mA_test1.pkl",
+        c3d_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/id_exp_florine_50Hz_400us_15mA_test1.c3d",
+         calibration_matrix_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/matrix.txt",
+         saving_pickle_path="/home/mickael/Documents/Kevin_CO/cocofest/examples/data_process/id_exp_florine_50Hz_400us_15mA_test1.pkl",
         for_id=True,
     )
     time = np.linspace(0, len(norm_muscle_force), len(norm_muscle_force))

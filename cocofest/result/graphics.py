@@ -469,7 +469,7 @@ class FES_plot:
                 )
 
     def id_plot(
-        self, title: str = None, show_stim: bool = True, show_bounds: bool = True, tracked_data=None, default_model=None
+        self, title: str = None, show_stim: bool = True, show_bounds: bool = True, tracked_data: dict = None, default_model=None
     ):
         solution = self.data
         identified_params = self.extract_identified_parameters(solution)
@@ -489,7 +489,10 @@ class FES_plot:
 
         ax.plot(sol_time, sol_force, color="red", label="identified")
 
-        if tracked_data:
+        if tracked_data is not None:
+            print("Tracked data:", tracked_data)
+            print("Tracked data type:", type(tracked_data))
+
             tracked_data_time = tracked_data["time"]
             tracked_data_force = tracked_data["force"]
 
