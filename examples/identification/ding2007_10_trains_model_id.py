@@ -1,5 +1,7 @@
 """
-This example demonstrates the way of identifying an experimental muscle force model based on Ding 2007 model.
+This example demonstrates the way of identifying the Ding 2007 model parameter using simulated data.
+First we integrate the model with a given parameter set.
+Finally, we use the data to identify the model parameters.
 """
 
 import matplotlib.pyplot as plt
@@ -11,39 +13,47 @@ from cocofest import (
     DingModelPulseWidthFrequency,
     IvpFes,
     ModelMaker,
-    OcpFesId, FES_plot,
+    OcpFesId,
+    FES_plot,
 )
-
 from cocofest.identification.identification_method import DataExtraction
 
-from examples.data_process.c3d_to_muscle_force import C3dToMuscleForce
 
+def simulate_data(model, final_time: int, pulse_width_values: list, n_integration_steps):
+    """
+    Returns a dictionary with time, force, stim_time, and pulse_width.
+    """
+    stim_time = model.stim_time
 
-def set_time_to_zero(stim_time, time_list):
-    first_stim = stim_time[0]
-    if first_stim > time_list[0]:
-        raise ValueError("Time list should begin at the first stimulation")
-    stim_time = list(np.array(stim_time) - first_stim)
-    time_list = list(np.array(time_list) - first_stim)
+    fes_parameters = {"model": model, "pulse_width": pulse_width_values}
+    ivp_parameters = {
+        "final_time": final_time,
+        "use_sx": True,
+        "ode_solver": OdeSolver.RK4(n_integration_steps=n_integration_steps),
+    }
+    ivp = IvpFes(fes_parameters, ivp_parameters)
 
-    return stim_time, time_list
+    result, time = ivp.integrate()
+    data = {
+        "time": time,
+        "force": result["F"][0],
+        "stim_time": stim_time,
+        "pulse_width": pulse_width_values,
+    }
+    return data
 
 
 def prepare_ocp(
     model,
     final_time,
     pulse_width_values,
+    simulated_data,
     key_parameter_to_identify,
-    tracked_data,
-    stim_time
 ):
     n_shooting = model.get_n_shooting(final_time)
-
-    # stim_time_1 = stim_time + [2 * stim_time[-1]-stim_time[-2]]
-
-    force_at_node = DataExtraction.force_at_node_in_ocp(tracked_data["time"], tracked_data["force"], n_shooting, final_time)
-
-    #force_at_node = np.interp(stim_time, tracked_data["time"], tracked_data["force"]).tolist()
+    force_at_node = DataExtraction.force_at_node_in_ocp(
+        simulated_data["time"], simulated_data["force"], n_shooting, final_time
+    )
 
     numerical_data_time_series, stim_idx_at_node_list = model.get_numerical_data_time_series(n_shooting, final_time)
     dynamics = OcpFesId.declare_dynamics(model=model, numerical_data_timeseries=numerical_data_time_series)
@@ -69,7 +79,6 @@ def prepare_ocp(
         quadratic=True,
     )
     additional_key_settings = OcpFesId.set_default_values(model)
-
     parameters, parameters_bounds, parameters_init = OcpFesId.set_parameters(
         parameter_to_identify=key_parameter_to_identify,
         parameter_setting=additional_key_settings,
@@ -97,34 +106,27 @@ def prepare_ocp(
     )
 
 
-def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
+def main(plot=True):
     # Parameters for simulation and identification
-    final_time = 2  #20
-    pulse_width_values = [0.0004] * 50  #500
+    n_stim = 500
+    final_time = 20
+    integration_steps = 10
+    stim_time = []
+    for i in range(10):
+        stim_time += list(np.linspace(2 * i, 2 * i + 1, 50))
 
-    c3d_converter = C3dToMuscleForce()
-    norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
-        c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
+    model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
+    pulse_width_values = [0.0004] * n_stim
+
+    sim_data = simulate_data(
+        model, final_time, pulse_width_values=pulse_width_values, n_integration_steps=integration_steps
     )
-
-    stim_time, time_list = set_time_to_zero(stim_time, time_list)
-
-    tracked_data = {"time": time_list, "force": norm_muscle_force}
-
-    last_stim = 0
-    while stim_time[last_stim] < tracked_data["time"][-1]:
-        last_stim += 1
-    new_stim_time = stim_time[:last_stim]
-
-    new_stim_time = list(np.linspace(0, 0.86, 44))
-    model = ModelMaker.create_model("ding2007", stim_time=new_stim_time, sum_stim_truncation=10)
 
     ocp = prepare_ocp(
         model,
         final_time,
         pulse_width_values,
-        tracked_data=tracked_data,
-        stim_time=new_stim_time,
+        simulated_data=sim_data,
         key_parameter_to_identify=[
             "km_rest",
             "tau1_rest",
@@ -140,16 +142,13 @@ def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
         default_model = DingModelPulseWidthFrequency()
 
         FES_plot(data=sol).plot(
-            title="Identification of experimental parameters based on Ding 2007 model",
-            tracked_data=tracked_data,
+            title="Identification of Ding 2007 parameters",
+            tracked_data=sim_data,
             default_model=default_model,
             show_bounds=False,
-            show_stim=True,
-            stim_time=new_stim_time
+            show_stim=False,
         )
 
 
 if __name__ == "__main__":
-    main(c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
-         calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\matrix.txt",
-         saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\id_exp_florine_50Hz_400us_15mA_test1.pkl")
+    main()
