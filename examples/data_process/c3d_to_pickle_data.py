@@ -94,25 +94,27 @@ class C3dToPickleData:
 
                 self.avg_stim_time = self.get_avg_time_diff()
 
+                self.rest_time = kwargs["rest_time"] if "rest_time" in kwargs else 1
+
+                self.frequency_acquisition = kwargs[
+                    "frequency_acquisition"] if "frequency_acquisition" in kwargs else 10000
+                self.frequency_stimulation = kwargs[
+                    "frequency_stimulation"] if "frequency_stimulation" in kwargs else 50
+
                 # Detect stimulation time
                 if "frequency_acquisition" in kwargs:
-                    stimulation_time, peaks = self.get_stim(
-                        time,
-                        self.stim_data,
+                    stimulation_time, peaks = self.get_stimulation(
+                        time=time,
+                        stimulation_signal=self.stim_data,
                         average_time_difference=self.avg_stim_time,
-                        frequency_acquisition=kwargs["frequency_acquisition"],
-                        check_stimulation=check_stimulation,
                     )
+                    stimulation_time_2, peaks_2 = self.get_stim(time=time, stimulation_signal=self.stim_data, average_time_difference=self.avg_stim_time, frequency_acquisition=self.frequency_acquisition)
                 else:
-                    stimulation_time, peaks = self.get_stim(time, self.stim_data, check_stimulation=check_stimulation,
-                                                            average_time_difference=self.avg_stim_time)
-                # Get the data from 6D file
-                self.sliced_time, self.sliced_data = self.slice_data_2(time, self.filtered_6d_force, peaks)
-                temp_time = deepcopy(self.sliced_time)
-                temp_data = deepcopy(self.sliced_data)
-
-                self.time_list.append(temp_time)
-                self.stim_index_list.append(peaks)
+                    stimulation_time, peaks = self.get_stimulation(
+                        time=time,
+                        stimulation_signal=self.stim_data,
+                        average_time_difference=self.avg_stim_time
+                    )
 
                 # stim = []
                 # for i in stimulation_time:
@@ -121,6 +123,16 @@ class C3dToPickleData:
                 # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red')
                 # plt.show()
 
+                # Get the data from 6D file
+                self.sliced_time, self.sliced_data = self.slice_data_1(time=time, data=self.filtered_6d_force, stimulation_index=peaks)
+                temp_time = deepcopy(self.sliced_time)
+                temp_data = deepcopy(self.sliced_data)
+
+                self.time_list.append(temp_time)
+                self.stim_index_list.append(peaks)
+
+
+
                 # force_stim = []
                 # for i in stimulation_time:
                 #     force_stim.append(self.filtered_6d_force[0, int(i * 10000)])
@@ -128,16 +140,10 @@ class C3dToPickleData:
                 # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red')
                 # plt.show()
 
-                plt.plot(self.sliced_time, self.sliced_data[0])
+                color = ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black', 'brown', 'gray', 'lightblue']
+                for i in range(len(self.sliced_time)):
+                    plt.plot(self.sliced_time[i], self.sliced_data[0][i], color=color[i])
                 plt.show()
-
-                if "plot" in kwargs:
-                    if kwargs["plot"]:
-                        for k in range(len(self.sliced_time)):
-                            plt.plot(self.sliced_time[k], self.sliced_data[0][k])
-                        for k in range(len(peaks)):
-                            plt.plot(time[peaks[k]], self.filtered_6d_force[0][peaks[k]], "x")
-                        plt.show()
 
                 # Save data as dictionary in pickle file
                 if saving_pickle_path_list:
@@ -291,6 +297,47 @@ class C3dToPickleData:
                 )
             return data
 
+    def slice_data_1(self, time, data, stimulation_index):
+        x = []
+        y = []
+        z = []
+        mx = []
+        my = []
+        mz = []
+
+        sliced_time = []
+
+        temp_stimulation_index = stimulation_index
+
+        i = 0
+        delta = self.frequency_acquisition / self.frequency_stimulation * 1.3
+
+        while len(temp_stimulation_index) != 0 and i < len(stimulation_index) - 1:
+            first = stimulation_index[i]
+            while i + 1 < len(stimulation_index) and stimulation_index[i+1] - stimulation_index[i] < delta:
+                i += 1
+
+            if i + 1 >= len(stimulation_index):
+                last = first + self.frequency_acquisition * (self.rest_time + 1)
+            else:
+                last = stimulation_index[i+1]
+
+            x.append(data[0][first:last].tolist())
+            y.append(data[1][first:last].tolist())
+            z.append(data[2][first:last].tolist())
+            mx.append(data[3][first:last].tolist())
+            my.append(data[4][first:last].tolist())
+            mz.append(data[5][first:last].tolist())
+            sliced_time.append(time[first:last])
+
+            i += 1
+
+            temp_stimulation_index = [peaks for peaks in temp_stimulation_index if peaks > last]
+
+        sliced_data = [x, y, z, mx, my, mz]
+
+        return sliced_time, sliced_data
+
     @staticmethod
     def slice_data_2(time, data, stimulation_peaks):
         first = stimulation_peaks[0]
@@ -364,6 +411,39 @@ class C3dToPickleData:
         sliced_data = [x, y, z, mx, my, mz]
         return sliced_time, sliced_data
 
+    def get_stimulation(self, time, stimulation_signal, average_time_difference=None):
+        derivative = np.diff(stimulation_signal)
+
+        threshold_positive = np.mean(heapq.nlargest(200, stimulation_signal)) / 2
+        threshold_negative = np.mean(heapq.nsmallest(200, stimulation_signal)) / 2
+
+        positive = np.where(stimulation_signal > threshold_positive)[0]
+        negative = np.where(stimulation_signal < threshold_negative)[0]
+
+        if negative[0] < positive[0]:
+            derivative = -derivative
+
+        derivative_threshold = np.mean(heapq.nlargest(200, derivative)) / 2
+
+        above_threshold = np.where(derivative > derivative_threshold)[0]
+
+        peaks = [above_threshold[0]]
+        for index in above_threshold[1:]:
+            if index - peaks[-1] > 10:
+                peaks.append(index)
+        time_peaks = [time[peak] for peak in peaks]
+
+        if average_time_difference:
+            time_peaks = np.array(time_peaks) + average_time_difference
+            peaks = np.array(peaks) + int(average_time_difference * self.frequency_acquisition)
+
+        if isinstance(time_peaks, np.ndarray):
+            time_peaks = time_peaks.tolist()
+        if isinstance(peaks, np.ndarray):
+            peaks = peaks.tolist()
+
+        return time_peaks, peaks
+
     @staticmethod
     def get_stim(
             time,
@@ -403,8 +483,8 @@ class C3dToPickleData:
                     "average_time_difference must be bigger than the inverse of the acquisition frequency."
                 )
         # Definition of thresholds : the largest and smallest values
-        threshold_positive = np.mean(heapq.nlargest(200, stimulation_signal)) / 2
-        threshold_negative = np.mean(heapq.nsmallest(200, stimulation_signal)) / 2
+        threshold_positive = np.mean(heapq.nlargest(200, stimulation_signal)) / 6
+        threshold_negative = np.mean(heapq.nsmallest(200, stimulation_signal)) / 6
 
         positive = np.where(stimulation_signal > threshold_positive)
         negative = np.where(stimulation_signal < threshold_negative)
@@ -517,5 +597,7 @@ if __name__ == "__main__":
         calibration_matrix_path="matrix.txt",
         saving_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01.pkl",
         for_id=True,
-        frequency_acquisition=10000
+        frequency_acquisition=10000,
+        frequency_stimulation=50,
+        rest_time=3,
     )
