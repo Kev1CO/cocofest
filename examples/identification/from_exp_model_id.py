@@ -17,6 +17,7 @@ from cocofest import (
 from cocofest.identification.identification_method import DataExtraction
 
 from examples.data_process.c3d_to_muscle_force import C3dToMuscleForce
+from examples.data_process.muscle_force_from_pickle import MuscleForceFromPickle
 
 
 def set_time_to_zero(stim_time, time_list):
@@ -97,26 +98,27 @@ def prepare_ocp(
     )
 
 
-def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
+def main(plot=True, pickle_path=None, muscle_name=None):
     # Parameters for simulation and identification
-    final_time = 2  #20
+    final_time = 4  #20
     pulse_width_values = [0.0004] * 50  #500
 
-    c3d_converter = C3dToMuscleForce()
-    norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
-        c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
-    )
+    # c3d_converter = C3dToMuscleForce()
+    # norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
+    #     c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
+    # )
+    get_force = MuscleForceFromPickle(pickle_path=pickle_path, muscle_name=muscle_name)
+    time, muscle_force, stim_time = get_force.read_pkl_to_force()
+    stim_time, time = set_time_to_zero(stim_time[46:], time)
 
-    stim_time, time_list = set_time_to_zero(stim_time, time_list)
-
-    tracked_data = {"time": time_list, "force": norm_muscle_force}
+    tracked_data = {"time": time[:12500], "force": muscle_force[:12500]}
 
     last_stim = 0
     while stim_time[last_stim] < tracked_data["time"][-1]:
         last_stim += 1
     new_stim_time = stim_time[:last_stim]
 
-    new_stim_time = list(np.linspace(0, 0.86, 44))
+    new_stim_time = list(np.linspace(0, 1, 50))
     model = ModelMaker.create_model("ding2007", stim_time=new_stim_time, sum_stim_truncation=10)
 
     ocp = prepare_ocp(
@@ -150,6 +152,4 @@ def main(c3d_path, calibration_matrix_path, saving_pickle_path, plot=True):
 
 
 if __name__ == "__main__":
-    main(c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\id_exp_florine_50Hz_400us_15mA_test1.c3d",
-         calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\matrix.txt",
-         saving_pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\id_exp_florine_50Hz_400us_15mA_test1.pkl")
+    main(plot=True, pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")

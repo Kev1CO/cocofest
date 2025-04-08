@@ -6,7 +6,7 @@ class MuscleForceFromPickle:
     def __init__(self, pickle_path: str = None, muscle_name: str = None):
         if pickle_path is None:
             raise ValueError("Please provide a path to the pickle file(s).")
-        if not isinstance(pickle_path, str) :
+        if not isinstance(pickle_path, str):
             raise TypeError("Please provide a str type path.")
         if not isinstance(muscle_name, str) and not isinstance(muscle_name, list):
             raise TypeError("Please provide a str type path.")
@@ -23,7 +23,7 @@ class MuscleForceFromPickle:
 
 
 if __name__ == "__main__":
-    muscle_force = MuscleForceFromPickle(pickle_path="essai1_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")
+    muscle_force = MuscleForceFromPickle(pickle_path="essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")
 
     plt.plot(muscle_force.time, muscle_force.muscle_force)
     plt.title("Muscle Force")

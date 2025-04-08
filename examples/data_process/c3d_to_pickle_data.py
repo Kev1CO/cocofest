@@ -4,6 +4,7 @@ from scipy.signal import find_peaks
 from copy import deepcopy
 import heapq
 import pickle
+import pywt
 
 from pyomeca import Analogs
 
@@ -53,23 +54,39 @@ class C3dToPickleData:
 
             # Filter data from c3d file
             self.filtered_data = (
-                np.array(raw_data.meca.low_pass(order=order, cutoff=cutoff, freq=raw_data.rate))
+                -np.array(raw_data.meca.low_pass(order=order, cutoff=10, freq=raw_data.rate))
                 if order and cutoff
                 else raw_data
             )
 
+            # filtered_data_20 = np.array(raw_data.meca.low_pass(order=1, cutoff=20, freq=raw_data.rate))
+
+            # filtered_data_10 = np.array(raw_data.meca.low_pass(order=1, cutoff=10, freq=raw_data.rate))
+
             lst_index = self.set_index_2(raw_data)
             raw_data_reindex = self.reindex_2d_list(raw_data.data, lst_index)
             self.filtered_data = self.reindex_2d_list(self.filtered_data, lst_index)
+            # filtered_data_20 = self.reindex_2d_list(filtered_data_20, lst_index)
+            # filtered_data_10 = self.reindex_2d_list(filtered_data_10, lst_index)
+
+            # plt.plot(time, self.filtered_data[0])
+            # plt.title('filtered_data_reindex')
+            # plt.show()
+
+            #filtered_david = self.filtre_david(raw_data_reindex)
 
             # Get force from voltage data
             if calibration_matrix_path:
                 self.calibration_matrix = self.read_text_file_to_matrix(calibration_matrix_path)
-                self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[2:]
+                self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
+                non_filtered_force = self.calibration_matrix @ raw_data_reindex[:6]
+                #filtered_david_calibr = self.calibration_matrix @ filtered_david[:6]
+                # filtered_data_20 = self.calibration_matrix @ filtered_data_20[:6]
+                # filtered_data_10 = self.calibration_matrix @ filtered_data_10[:6]
             else:
                 if "already_calibrated" in kwargs:
                     if kwargs["already_calibrated"] is True:
-                        self.filtered_6d_force = self.filtered_data[2:]
+                        self.filtered_6d_force = self.filtered_data[:6]
                     else:
                         raise ValueError("already_calibrated must be either True or False")
                 else:
@@ -83,7 +100,19 @@ class C3dToPickleData:
             # plt.show()
 
             self.filtered_6d_force = self.set_zero_level(self.filtered_6d_force, average_on=[0, 20000])
+            non_filtered_force = self.set_zero_level(non_filtered_force, average_on=[0, 20000])
             self.stim_data = self.set_zero_level(raw_data_reindex[-1], average_on=[0, 20000])
+            #filtered_data_20 = self.set_zero_level(filtered_data_20, average_on=[0, 20000])
+            #filtered_data_10 = self.set_zero_level(filtered_data_10, average_on=[0, 20000])
+            #filtered_david_calibr = self.set_zero_level(filtered_david_calibr, average_on=[0, 20000])
+
+            #plt.plot(time, -self.filtered_6d_force[0], color='blue', alpha=0.5, label='low pass 2Hz')
+            #plt.plot(time, -filtered_data_20[0], color='red', alpha=0.5, label='low pass 20Hz')
+            #plt.plot(time, -filtered_data_10[0], color='orange', alpha=0.5, label='low pass 10Hz')
+            #plt.plot(time, -non_filtered_force[0], color='green', alpha=0.5, label='no filter')
+            ##plt.plot(time, -filtered_david_calibr[0], color='yellow', alpha=0.5, label='wavelet')
+            #plt.legend()
+            #plt.show()
 
             # plt.plot(time, self.filtered_6d_force[0])
             # plt.title("Après set_zero_level")
@@ -120,7 +149,9 @@ class C3dToPickleData:
                 # for i in stimulation_time:
                 #     stim.append(self.stim_data[int(i * 10000)])
                 # plt.plot(time, self.stim_data, color='blue', alpha=0.5)
-                # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red')
+                # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red', label='derivative')
+                # plt.scatter(stimulation_time_2, [0] * len(stimulation_time_2), color='purple', label='first method')
+                # plt.legend()
                 # plt.show()
 
                 # Get the data from 6D file
@@ -133,17 +164,28 @@ class C3dToPickleData:
 
 
 
-                # force_stim = []
-                # for i in stimulation_time:
-                #     force_stim.append(self.filtered_6d_force[0, int(i * 10000)])
-                # plt.plot(time, self.filtered_6d_force[0], color='blue', alpha=0.5)
-                # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red')
+                force_stim = []
+                for i in stimulation_time:
+                    force_stim.append(self.filtered_6d_force[0, int(i * 10000)])
+
+
+                force_stim_2 = []
+                for i in stimulation_time_2:
+                    force_stim_2.append(self.filtered_6d_force[0, int(i * 10000)])
+
+                # plt.plot(time, self.filtered_6d_force[0], color='blue', alpha=0.5, label='low pass 10Hz')
+                # plt.plot(time, self.stim_data*1000, color='black', alpha=0.5)
+                # plt.plot(time, non_filtered_force[0], color='green', alpha=0.5, label='no filter')
+                # #plt.plot(time, filtered_david_calibr[0], color='red', alpha=0.5, label='wavelet')
+                # plt.scatter(stimulation_time, force_stim, color='red', label='derivative')
+                # plt.scatter(stimulation_time_2, force_stim_2, color='purple', label='first method')
+                # plt.legend()
                 # plt.show()
 
-                color = ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black', 'brown', 'gray', 'lightblue']
-                for i in range(len(self.sliced_time)):
-                    plt.plot(self.sliced_time[i], self.sliced_data[0][i], color=color[i])
-                plt.show()
+                # color = ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black', 'brown', 'gray', 'lightblue']
+                # for i in range(len(self.sliced_time)):
+                #     plt.plot(self.sliced_time[i], self.sliced_data[0][i], color=color[i])
+                # plt.show()
 
                 # Save data as dictionary in pickle file
                 if saving_pickle_path_list:
@@ -156,13 +198,13 @@ class C3dToPickleData:
                         save_pickle_path = saving_pickle_path_list[i]
 
                     dictionary = {
-                        "time": self.sliced_time,
-                        "x": self.sliced_data[0],
-                        "y": self.sliced_data[1],
-                        "z": self.sliced_data[2],
-                        "mx": self.sliced_data[3],
-                        "my": self.sliced_data[4],
-                        "mz": self.sliced_data[5],
+                        "time": self.sliced_time[1],
+                        "x": self.sliced_data[0][1],
+                        "y": self.sliced_data[1][1],
+                        "z": self.sliced_data[2][1],
+                        "mx": self.sliced_data[3][1],
+                        "my": self.sliced_data[4][1],
+                        "mz": self.sliced_data[5][1],
                         "stim_time": stimulation_time,
                     }
                     with open(save_pickle_path, "wb") as file:
@@ -411,6 +453,41 @@ class C3dToPickleData:
         sliced_data = [x, y, z, mx, my, mz]
         return sliced_time, sliced_data
 
+    def filtre_david(self, signal_matrice):
+        if isinstance(signal_matrice, list):
+            signal_matrice = np.array(signal_matrice)
+        num_composantes = signal_matrice.shape[1]
+        signal_debruite_matrice = np.zeros_like(signal_matrice)
+
+        wavelet_name = 'db4'
+
+        #level = 2
+
+        for i in range(num_composantes):
+            signal_composante = signal_matrice[:, i]
+
+            max_level = pywt.dwt_max_level(data_len=len(signal_composante),
+                                           filter_len=pywt.Wavelet(wavelet_name).dec_len)
+            level = min(4, 1)
+
+            coeffs = pywt.wavedec(signal_composante, wavelet_name, level=level)
+            ca = coeffs[0]
+            details = coeffs[1:]
+
+            if details:
+                threshold = np.std(details[-1]) * np.sqrt(2 * np.log(len(signal_composante)))
+            else:
+                threshold = 0  # ou une valeur par défaut, ou simplement sauter le seuillage
+
+            coeffs_threshed = [ca]
+            for detail_level in details:
+                threshed_detail = pywt.threshold(detail_level, threshold, mode='soft')
+                coeffs_threshed.append(threshed_detail)
+
+            signal_debruite_composante = pywt.waverec(coeffs_threshed, wavelet_name)
+            signal_debruite_matrice[:, i] = signal_debruite_composante[:signal_matrice.shape[0]]
+        return signal_debruite_matrice
+
     def get_stimulation(self, time, stimulation_signal, average_time_difference=None):
         derivative = np.diff(stimulation_signal)
 
@@ -435,7 +512,7 @@ class C3dToPickleData:
 
         if average_time_difference:
             time_peaks = np.array(time_peaks) + average_time_difference
-            peaks = np.array(peaks) + int(average_time_difference * self.frequency_acquisition)
+            peaks_with = np.array(peaks) + int(average_time_difference * self.frequency_acquisition)
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()

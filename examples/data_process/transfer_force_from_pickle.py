@@ -80,15 +80,25 @@ class TransferForceFromPickle:
             plt.plot(self.time, force_data[0], label="force x", color="blue")
             plt.plot(self.time, force_data[1], label="force y", color="orange")
             plt.plot(self.time, force_data[2], label="force z", color="green")
-
             plt.legend()
             plt.show()
 
             local_force_data = self.local_sensor_to_local_hand(force_data)
+
+            plt.plot(self.time, local_force_data[0], label="force x", color="blue")
+            plt.legend()
+            plt.show()
+
             local_torque_data = self.local_sensor_to_local_hand(torque_data)
             self.local_data = np.concatenate((local_force_data, local_torque_data))
             self.select_muscle_and_dof()
             self.get_muscle_force(local_data=self.local_data)
+
+            self.muscle_force_vector = np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
+
+            plt.plot(self.time, self.muscle_force_vector, label="muscle force", color="red")
+            plt.legend()
+            plt.show()
 
             if out_pickle_path:
                 if len(out_pickle_path) == 1:
@@ -199,7 +209,7 @@ class TransferForceFromPickle:
     def select_muscle_and_dof(self):
         dof_index = self.dof_index[self.dof_name]
         muscle_index = self.muscle_index[self.muscle_name]
-        self.muscle_moment_arm = self.model.musclesLengthJacobian(self.Q).to_array()[muscle_index][dof_index]
+        self.muscle_moment_arm = -self.model.musclesLengthJacobian(self.Q).to_array()[muscle_index][dof_index]
 
     def get_muscle_force(self, local_data):
         """
@@ -230,8 +240,8 @@ class TransferForceFromPickle:
 if __name__ == "__main__":
     force_transfer = TransferForceFromPickle(
         model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
-        in_pickle_path="essai1_florine_50Hz_400us_15mA_TR1s.pkl_0.pkl",
-        out_pickle_path="essai1_florine_force_biceps.pkl",
+        in_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01.pkl_40.047989799999996.pkl",
+        out_pickle_path="essai2_florine_force_biceps.pkl",
         elbow_angle=90,
         muscle_name='BIC_long',
         dof_name='r_ulna_radius_hand_r_elbow_flex_RotX'
