@@ -44,7 +44,7 @@ class C3dToPickleData:
 
             # Low pass filter parameters
             order = kwargs["order"] if "order" in kwargs else 1
-            cutoff = kwargs["cutoff"] if "cutoff" in kwargs else 2
+            cutoff = kwargs["cutoff"] if "cutoff" in kwargs else 10
             if not isinstance(order, int | None) or not isinstance(cutoff, int | None):
                 raise TypeError("window_length and order must be either None or int type")
             if type(order) != type(cutoff):
@@ -54,7 +54,7 @@ class C3dToPickleData:
 
             # Filter data from c3d file
             self.filtered_data = (
-                -np.array(raw_data.meca.low_pass(order=order, cutoff=10, freq=raw_data.rate))
+                -np.array(raw_data.meca.low_pass(order=order, cutoff=cutoff, freq=raw_data.rate))
                 if order and cutoff
                 else raw_data
             )
@@ -73,14 +73,11 @@ class C3dToPickleData:
             # plt.title('filtered_data_reindex')
             # plt.show()
 
-            #filtered_david = self.filtre_david(raw_data_reindex)
-
             # Get force from voltage data
             if calibration_matrix_path:
                 self.calibration_matrix = self.read_text_file_to_matrix(calibration_matrix_path)
                 self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
                 non_filtered_force = self.calibration_matrix @ raw_data_reindex[:6]
-                #filtered_david_calibr = self.calibration_matrix @ filtered_david[:6]
                 # filtered_data_20 = self.calibration_matrix @ filtered_data_20[:6]
                 # filtered_data_10 = self.calibration_matrix @ filtered_data_10[:6]
             else:
@@ -95,6 +92,12 @@ class C3dToPickleData:
                         "If not, please provide a calibration matrix path"
                     )
 
+            torque_ergometer = self.filtered_data[6]
+
+            plt.plot(time, torque_ergometer)
+            plt.title("Torque ergometer")
+            plt.show()
+
             # plt.plot(time, self.filtered_6d_force[0])
             # plt.title("Avant set_zero_level")
             # plt.show()
@@ -104,13 +107,12 @@ class C3dToPickleData:
             self.stim_data = self.set_zero_level(raw_data_reindex[-1], average_on=[0, 20000])
             #filtered_data_20 = self.set_zero_level(filtered_data_20, average_on=[0, 20000])
             #filtered_data_10 = self.set_zero_level(filtered_data_10, average_on=[0, 20000])
-            #filtered_david_calibr = self.set_zero_level(filtered_david_calibr, average_on=[0, 20000])
+
 
             #plt.plot(time, -self.filtered_6d_force[0], color='blue', alpha=0.5, label='low pass 2Hz')
             #plt.plot(time, -filtered_data_20[0], color='red', alpha=0.5, label='low pass 20Hz')
             #plt.plot(time, -filtered_data_10[0], color='orange', alpha=0.5, label='low pass 10Hz')
             #plt.plot(time, -non_filtered_force[0], color='green', alpha=0.5, label='no filter')
-            ##plt.plot(time, -filtered_david_calibr[0], color='yellow', alpha=0.5, label='wavelet')
             #plt.legend()
             #plt.show()
 
@@ -137,7 +139,6 @@ class C3dToPickleData:
                         stimulation_signal=self.stim_data,
                         average_time_difference=self.avg_stim_time,
                     )
-                    stimulation_time_2, peaks_2 = self.get_stim(time=time, stimulation_signal=self.stim_data, average_time_difference=self.avg_stim_time, frequency_acquisition=self.frequency_acquisition)
                 else:
                     stimulation_time, peaks = self.get_stimulation(
                         time=time,
@@ -155,37 +156,34 @@ class C3dToPickleData:
                 # plt.show()
 
                 # Get the data from 6D file
-                self.sliced_time, self.sliced_data = self.slice_data_1(time=time, data=self.filtered_6d_force, stimulation_index=peaks)
+                self.sliced_time, self.sliced_data = self.slice_data(time=time, data=self.filtered_6d_force, stimulation_index=peaks)
                 temp_time = deepcopy(self.sliced_time)
                 temp_data = deepcopy(self.sliced_data)
 
                 self.time_list.append(temp_time)
                 self.stim_index_list.append(peaks)
 
-
-
                 force_stim = []
-                for i in stimulation_time:
-                    force_stim.append(self.filtered_6d_force[0, int(i * 10000)])
-
-
-                force_stim_2 = []
-                for i in stimulation_time_2:
-                    force_stim_2.append(self.filtered_6d_force[0, int(i * 10000)])
+                for j in stimulation_time:
+                    force_stim.append(self.filtered_6d_force[0, int(j * 10000)])
 
                 # plt.plot(time, self.filtered_6d_force[0], color='blue', alpha=0.5, label='low pass 10Hz')
                 # plt.plot(time, self.stim_data*1000, color='black', alpha=0.5)
                 # plt.plot(time, non_filtered_force[0], color='green', alpha=0.5, label='no filter')
-                # #plt.plot(time, filtered_david_calibr[0], color='red', alpha=0.5, label='wavelet')
                 # plt.scatter(stimulation_time, force_stim, color='red', label='derivative')
-                # plt.scatter(stimulation_time_2, force_stim_2, color='purple', label='first method')
                 # plt.legend()
                 # plt.show()
 
-                # color = ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black', 'brown', 'gray', 'lightblue']
-                # for i in range(len(self.sliced_time)):
-                #     plt.plot(self.sliced_time[i], self.sliced_data[0][i], color=color[i])
-                # plt.show()
+                color = ['blue', 'orange', 'green', 'red', 'purple', 'pink', 'black', 'brown', 'gray', 'lightblue']
+                for j in range(len(self.sliced_time)):
+                    plt.plot(self.sliced_time[j], self.sliced_data[0][j], color=color[j])
+                plt.show()
+
+                self.set_to_zero_slice()
+
+                for j in range(len(self.sliced_time)):
+                    plt.plot(self.sliced_time[j], self.sliced_data[0][j], color=color[j])
+                plt.show()
 
                 # Save data as dictionary in pickle file
                 if saving_pickle_path_list:
@@ -198,13 +196,13 @@ class C3dToPickleData:
                         save_pickle_path = saving_pickle_path_list[i]
 
                     dictionary = {
-                        "time": self.sliced_time[1],
-                        "x": self.sliced_data[0][1],
-                        "y": self.sliced_data[1][1],
-                        "z": self.sliced_data[2][1],
-                        "mx": self.sliced_data[3][1],
-                        "my": self.sliced_data[4][1],
-                        "mz": self.sliced_data[5][1],
+                        "time": self.sliced_time,
+                        "x": self.sliced_data[0],
+                        "y": self.sliced_data[1],
+                        "z": self.sliced_data[2],
+                        "mx": self.sliced_data[3],
+                        "my": self.sliced_data[4],
+                        "mz": self.sliced_data[5],
                         "stim_time": stimulation_time,
                     }
                     with open(save_pickle_path, "wb") as file:
@@ -339,7 +337,7 @@ class C3dToPickleData:
                 )
             return data
 
-    def slice_data_1(self, time, data, stimulation_index):
+    def slice_data(self, time, data, stimulation_index):
         x = []
         y = []
         z = []
@@ -362,7 +360,7 @@ class C3dToPickleData:
             if i + 1 >= len(stimulation_index):
                 last = first + self.frequency_acquisition * (self.rest_time + 1)
             else:
-                last = stimulation_index[i+1]
+                last = stimulation_index[i+1] - 1
 
             x.append(data[0][first:last].tolist())
             y.append(data[1][first:last].tolist())
@@ -380,113 +378,26 @@ class C3dToPickleData:
 
         return sliced_time, sliced_data
 
-    @staticmethod
-    def slice_data_2(time, data, stimulation_peaks):
-        first = stimulation_peaks[0]
-        last = first + 10000 * 20
-
-        x = data[0, first:last]
-        y = data[1, first:last]
-        z = data[2, first:last]
-        mx = data[3, first:last]
-        my = data[4, first:last]
-        mz = data[5, first:last]
-
-        sliced_time = time[first:last]
-        sliced_data = [x, y, z, mx, my, mz]
-
-        return sliced_time, sliced_data
-
-    @staticmethod
-    def slice_data(time, data, stimulation_peaks, main_axis=0):
+    def set_to_zero_slice(self):
         """
-        Parameters
-        ----------
-        time: list
-        data : array
-            Contains force data from c3d file
-        stimulation_peaks: list
-            Contains time stimulation indexes
-        main_axis: int
-            Choose the main axis to consider (default : x)
-
-        Returns
-        -------
-        sliced_time: list
-            Contains
-        sliced_data: list
-            Contains
+        Set each slice to zero
         """
-        sliced_time = []
-        temp_stimulation_peaks = stimulation_peaks
-        x = []
-        y = []
-        z = []
-        mx = []
-        my = []
-        mz = []
-
-        while len(temp_stimulation_peaks) != 0:
-            substact_to_zero = data[:, temp_stimulation_peaks[0]]
-            for i in range(len(substact_to_zero)):
-                data[:, temp_stimulation_peaks[0]:][i] = data[:, temp_stimulation_peaks[0]:][i] - substact_to_zero[i]
-
-            first = temp_stimulation_peaks[0]
-            # print(temp_stimulation_peaks)
-            # print(len(temp_stimulation_peaks))
-            # print(first)
-            last = (
-                    next((x for x, val in enumerate(-data[main_axis, first:]) if val < 0), len(data[main_axis, first:]))
-                    + first
-            )
-
-            x.extend(data[0, first:last].tolist())
-            y.extend(data[1, first:last].tolist())
-            z.extend(data[2, first:last].tolist())
-            mx.extend(data[3, first:last].tolist())
-            my.extend(data[4, first:last].tolist())
-            mz.extend(data[5, first:last].tolist())
-
-            sliced_time.extend(time[first:last])
-
-            temp_stimulation_peaks = [peaks for peaks in temp_stimulation_peaks if peaks > last]
-        sliced_data = [x, y, z, mx, my, mz]
-        return sliced_time, sliced_data
-
-    def filtre_david(self, signal_matrice):
-        if isinstance(signal_matrice, list):
-            signal_matrice = np.array(signal_matrice)
-        num_composantes = signal_matrice.shape[1]
-        signal_debruite_matrice = np.zeros_like(signal_matrice)
-
-        wavelet_name = 'db4'
-
-        #level = 2
-
-        for i in range(num_composantes):
-            signal_composante = signal_matrice[:, i]
-
-            max_level = pywt.dwt_max_level(data_len=len(signal_composante),
-                                           filter_len=pywt.Wavelet(wavelet_name).dec_len)
-            level = min(4, 1)
-
-            coeffs = pywt.wavedec(signal_composante, wavelet_name, level=level)
-            ca = coeffs[0]
-            details = coeffs[1:]
-
-            if details:
-                threshold = np.std(details[-1]) * np.sqrt(2 * np.log(len(signal_composante)))
-            else:
-                threshold = 0  # ou une valeur par défaut, ou simplement sauter le seuillage
-
-            coeffs_threshed = [ca]
-            for detail_level in details:
-                threshed_detail = pywt.threshold(detail_level, threshold, mode='soft')
-                coeffs_threshed.append(threshed_detail)
-
-            signal_debruite_composante = pywt.waverec(coeffs_threshed, wavelet_name)
-            signal_debruite_matrice[:, i] = signal_debruite_composante[:signal_matrice.shape[0]]
-        return signal_debruite_matrice
+        for i in range(len(self.sliced_data)):
+            for j in range(len(self.sliced_data[i])):
+                self.sliced_data[i][j] = np.array(self.sliced_data[i][j]) - self.sliced_data[i][j][0]
+                for k, val in enumerate(self.sliced_data[i][j][1:]):
+                    if val <= 0:
+                        self.sliced_data[i][j][k+1:] = 0
+                        break
+                if np.all(self.sliced_data[i][j][1:] > 0):
+                    derivative = np.diff(self.sliced_data[i][j])
+                    drop_detected = False
+                    for k in range(len(derivative) - 1):
+                        if not drop_detected and derivative[k] <= -0.01:
+                            drop_detected = True
+                        elif drop_detected and derivative[k+1] >= 0:
+                            self.sliced_data[i][j][k+1:] = 0
+                            break
 
     def get_stimulation(self, time, stimulation_signal, average_time_difference=None):
         derivative = np.diff(stimulation_signal)
@@ -513,83 +424,6 @@ class C3dToPickleData:
         if average_time_difference:
             time_peaks = np.array(time_peaks) + average_time_difference
             peaks_with = np.array(peaks) + int(average_time_difference * self.frequency_acquisition)
-
-        if isinstance(time_peaks, np.ndarray):
-            time_peaks = time_peaks.tolist()
-        if isinstance(peaks, np.ndarray):
-            peaks = peaks.tolist()
-
-        return time_peaks, peaks
-
-    @staticmethod
-    def get_stim(
-            time,
-            stimulation_signal,
-            average_time_difference: float = None,
-            frequency_acquisition: int = None,
-            check_stimulation: bool = False,
-    ):
-        """
-        Parameters
-        ----------
-        time
-        stimulation_signal
-        average_time_difference: float
-            Time gap between the sending of the stim and the actual stim (s)
-        frequency_acquisition: float
-            Parameter of the measuring device (Hz)
-        check_stimulation: bool
-            If you want to plot the stimulation signal
-
-        Returns
-        -------
-        time_peaks: list
-            Contains peaks' time
-        peaks: list
-            Contains peaks' indexes
-        """
-        if average_time_difference:
-            if not isinstance(average_time_difference, float):
-                raise TypeError("average_time_difference must be a float.")
-            if not frequency_acquisition:
-                raise ValueError("Please specify the acquisition frequency when average_time_difference is entered.")
-            if not isinstance(frequency_acquisition, int):
-                raise TypeError("frequency_acquisition must be an integer.")
-            if abs(average_time_difference) < 1 / frequency_acquisition:
-                raise ValueError(
-                    "average_time_difference must be bigger than the inverse of the acquisition frequency."
-                )
-        # Definition of thresholds : the largest and smallest values
-        threshold_positive = np.mean(heapq.nlargest(200, stimulation_signal)) / 6
-        threshold_negative = np.mean(heapq.nsmallest(200, stimulation_signal)) / 6
-
-        positive = np.where(stimulation_signal > threshold_positive)
-        negative = np.where(stimulation_signal < threshold_negative)
-
-        if negative[0][0] < positive[0][0]:
-            stimulation_signal = -stimulation_signal  # invert the signal if the first peak is negative
-            threshold = -threshold_negative
-        else:
-            threshold = threshold_positive
-
-        # peaks contains the index of peaks
-        peaks, _ = find_peaks(stimulation_signal, distance=10, height=threshold)
-
-        # time_peaks contains the time of the peaks
-        time_peaks = []
-        for i in range(len(peaks)):
-            time_peaks.append(time[peaks[i]])
-
-        # If you want to plot the stimulation signal
-        if check_stimulation:
-            for k in range(len(time_peaks)):
-                plt.plot(time_peaks[k], stimulation_signal[peaks[k]], "x")
-            plt.plot(time, stimulation_signal)
-            plt.show()
-
-        if average_time_difference:
-            time_peaks = np.array(time_peaks) + average_time_difference
-            peaks = np.array(peaks) + int(average_time_difference * frequency_acquisition)
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()
@@ -670,9 +504,9 @@ class C3dToPickleData:
 
 if __name__ == "__main__":
     C3dToPickleData(
-        c3d_path="essai2_florine_50Hz_400us_15mA_TR3s01.c3d",
+        c3d_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.c3d",
         calibration_matrix_path="matrix.txt",
-        saving_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01.pkl",
+        saving_pickle_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.pkl",
         for_id=True,
         frequency_acquisition=10000,
         frequency_stimulation=50,
