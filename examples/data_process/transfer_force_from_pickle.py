@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+from itertools import chain
 
 from biorbd import Model
 
@@ -136,11 +137,17 @@ class TransferForceFromPickle:
             # pickle_path = in_pickle_path[:-4] + ".pkl_0" + in_pickle_path[-4:]
             with open(in_pickle_path, "rb") as f:
                 data = pickle.load(f)
+                x = list(chain.from_iterable(data["x"]))
+                y = list(chain.from_iterable(data["y"]))
+                z = list(chain.from_iterable(data["z"]))
+                mx = list(chain.from_iterable(data["mx"]))
+                my = list(chain.from_iterable(data["my"]))
+                mz = list(chain.from_iterable(data["mz"]))
 
-                force_data = np.array([data["x"], data["y"], data["z"]])
-                torque_data = np.array([data["mx"], data["my"], data["mz"]])
+                force_data = np.array([x, y, z])
+                torque_data = np.array([mx, my, mz])
 
-                self.time = data["time"]
+                self.time = list(chain.from_iterable(data["time"]))
                 self.stim_time = data["stim_time"]
         else:
             raise ValueError("pickle_path must be a string")
@@ -240,8 +247,8 @@ class TransferForceFromPickle:
 if __name__ == "__main__":
     force_transfer = TransferForceFromPickle(
         model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
-        in_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01.pkl_40.047989799999996.pkl",
-        out_pickle_path="essai2_florine_force_biceps.pkl",
+        in_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01_alltrains.pkl_9.pkl",
+        out_pickle_path="essai2_florine_force_biceps_alltrains.pkl",
         elbow_angle=90,
         muscle_name='BIC_long',
         dof_name='r_ulna_radius_hand_r_elbow_flex_RotX'
