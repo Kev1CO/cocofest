@@ -23,7 +23,9 @@ class MuscleForceFromPickle:
 
 
 if __name__ == "__main__":
-    muscle_force = MuscleForceFromPickle(pickle_path="essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")
+    muscle_force = MuscleForceFromPickle(
+        pickle_path="essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long"
+    )
 
     plt.plot(muscle_force.time, muscle_force.muscle_force)
     plt.title("Muscle Force")
