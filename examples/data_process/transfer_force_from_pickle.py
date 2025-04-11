@@ -5,18 +5,16 @@ from itertools import chain
 
 from biorbd import Model
 
-from examples.data_process.c3d_to_pickle_data import C3dToPickleData
-
 
 class TransferForceFromPickle:
     def __init__(
-            self,
-            model_path: str = None,
-            in_pickle_path: str | list[str] = None,
-            out_pickle_path: str | list[str] = None,
-            elbow_angle: int | float | list[int] | list[float] = 90,
-            muscle_name: str | list[str] = None,
-            dof_name: str = None
+        self,
+        model_path: str = None,
+        in_pickle_path: str | list[str] = None,
+        out_pickle_path: str | list[str] = None,
+        elbow_angle: int | float | list[int] | list[float] = 90,
+        muscle_name: str | list[str] = None,
+        dof_name: str = None,
     ):
 
         if model_path is None:
@@ -29,18 +27,25 @@ class TransferForceFromPickle:
         if in_pickle_path is None:
             raise ValueError("Please provide a path to the pickle file(s).")
         if not isinstance(in_pickle_path, str) and not isinstance(in_pickle_path, list):
-            raise TypeError("Please provide a pickle_path list of str type or a str type path.")
-        if not isinstance(out_pickle_path, str) and not isinstance(out_pickle_path, list):
-            raise TypeError("Please provide a out_pickle_path list of str type or a str type path.")
+            raise TypeError(
+                "Please provide a pickle_path list of str type or a str type path."
+            )
+        if not isinstance(out_pickle_path, str) and not isinstance(
+            out_pickle_path, list
+        ):
+            raise TypeError(
+                "Please provide a out_pickle_path list of str type or a str type path."
+            )
         if out_pickle_path is not None:
             if isinstance(out_pickle_path, str):
                 out_pickle_path = [out_pickle_path]
             if len(out_pickle_path) != 1:
                 if len(out_pickle_path) != len(in_pickle_path):
-                    raise ValueError("If not str type, out_pickle_path must be the same length as pickle_path.")
+                    raise ValueError(
+                        "If not str type, out_pickle_path must be the same length as pickle_path."
+                    )
 
         self.path = in_pickle_path
-        # self.plot = plt.plot
         self.time = None
         self.stim_time = None
         self.local_data = None
@@ -57,26 +62,32 @@ class TransferForceFromPickle:
         self.load_model(elbow_angle)
 
         # Saving muscle/dof names and indexes as dict
-        self.muscle_index = {}  #appeler d'une autre manière muscle_name_index
+        self.muscle_name_index = {}
         for i in range(len(self.model.muscleNames())):
-            self.muscle_index[self.model.muscleNames()[i].to_string()] = i
+            self.muscle_name_index[self.model.muscleNames()[i].to_string()] = i
 
-        self.dof_index = {}
+        self.dof_name_index = {}
         for i in range(len(self.model.nameDof())):
-            self.dof_index[self.model.nameDof()[i].to_string()] = i
+            self.dof_name_index[self.model.nameDof()[i].to_string()] = i
 
-        if self.muscle_name not in self.muscle_index.keys():
-            raise ValueError(f"Please provide a muscle name in the muscle_index dictionary : {list(self.muscle_index.keys())}.")
+        if self.muscle_name not in self.muscle_name_index.keys():
+            raise ValueError(
+                f"Please provide a muscle name in the muscle_index dictionary : {list(self.muscle_name_index.keys())}."
+            )
 
-        if self.dof_name not in self.dof_index.keys():
-            raise ValueError(f"Please provide a dof name in the dof_index dictionary : {list(self.dof_index.keys())}.")
+        if self.dof_name not in self.dof_name_index.keys():
+            raise ValueError(
+                f"Please provide a dof name in the dof_index dictionary : {list(self.dof_name_index.keys())}."
+            )
 
-        # c3d_converter = C3dToPickleData()
-
-        in_pickle_path_list = [in_pickle_path] if isinstance(in_pickle_path, str) else in_pickle_path
+        in_pickle_path_list = (
+            [in_pickle_path] if isinstance(in_pickle_path, str) else in_pickle_path
+        )
 
         for i in range(len(in_pickle_path_list)):
-            force_data, torque_data = self.read_pkl_to_force_vector(in_pickle_path_list[i])
+            force_data, torque_data = self.read_pkl_to_force_vector(
+                in_pickle_path_list[i]
+            )
 
             plt.plot(self.time, force_data[0], label="force x", color="blue")
             plt.plot(self.time, force_data[1], label="force y", color="orange")
@@ -95,9 +106,13 @@ class TransferForceFromPickle:
             self.select_muscle_and_dof()
             self.get_muscle_force(local_data=self.local_data)
 
-            self.muscle_force_vector = np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
+            self.muscle_force_vector = (
+                np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
+            )
 
-            plt.plot(self.time, self.muscle_force_vector, label="muscle force", color="red")
+            plt.plot(
+                self.time, self.muscle_force_vector, label="muscle force", color="red"
+            )
             plt.legend()
             plt.show()
 
@@ -110,11 +125,6 @@ class TransferForceFromPickle:
                 else:
                     save_pickle_path = out_pickle_path[i]
 
-                muscle_name = (
-                    muscle_name
-                    if isinstance(muscle_name, str)
-                    else muscle_name[i] if isinstance(muscle_name, list) else "biceps"
-                )  # TODO : voir si besoin d'avoir une liste de muscle name
                 dictionary = {
                     "time": self.time,
                     self.muscle_name: self.muscle_force_vector,
@@ -125,13 +135,18 @@ class TransferForceFromPickle:
 
     def read_pkl_to_force_vector(self, in_pickle_path):
         """
+        This function is used to read the pickle file and extract the force and torque data.
         Parameters
         ----------
         in_pickle_path: str
+            The path to the pickle file
 
         Returns
         -------
-        An array of the 3 force components
+        force_data: np.array
+            The force data in the local muscle axis
+        torque_data: np.array
+            The torque data in the local muscle axis
         """
         if isinstance(in_pickle_path, str):
             # pickle_path = in_pickle_path[:-4] + ".pkl_0" + in_pickle_path[-4:]
@@ -161,15 +176,22 @@ class TransferForceFromPickle:
         This a rotation along x axis whatever the elbow angle
         Parameters
         ----------
-        sensor_data
+        sensor_data: np.array
+            The sensor data in the local axis
 
         Returns
         -------
-
+        new_sensor_data: np.array
+            The sensor data in the local hand axis
         """
         rotation_angle = np.pi / 2
-        rotation_matrix = np.array([[1, 0, 0], [0, np.cos(rotation_angle), - np.sin(rotation_angle)],
-                                    [0, np.sin(rotation_angle), np.cos(rotation_angle)]])
+        rotation_matrix = np.array(
+            [
+                [1, 0, 0],
+                [0, np.cos(rotation_angle), -np.sin(rotation_angle)],
+                [0, np.sin(rotation_angle), np.cos(rotation_angle)],
+            ]
+        )
         new_sensor_data = rotation_matrix @ sensor_data
 
         return new_sensor_data
@@ -181,26 +203,39 @@ class TransferForceFromPickle:
         This is a rotation of elbow angle along z axis
         Parameters
         ----------
-        force_data
+        force_data: np.array
+            The sensor data in the local hand axis
         elbow_angle: float
             Must be in radians
 
         Returns
         -------
-
+        new_force_data: np.array
+            The sensor data in the local muscle axis
         """
-        # tuple(s.to_string() for s in self.model.nameDof()) -> .index pour obtenir l'index dans la liste
         rotation_angle = np.pi - np.radians(elbow_angle)
         rotation_matrix = np.array(
-            [[np.cos(rotation_angle), - np.sin(rotation_angle), 0], [np.sin(rotation_angle), np.cos(rotation_angle), 0],
-             [0, 0, 1]])
+            [
+                [np.cos(rotation_angle), -np.sin(rotation_angle), 0],
+                [np.sin(rotation_angle), np.cos(rotation_angle), 0],
+                [0, 0, 1],
+            ]
+        )
         new_force_data = rotation_matrix @ force_data
 
         return new_force_data
 
     def load_model(self, elbow_angle: int | float):
+        """
+        This function is used to load the model and set the initial position, velocity and acceleration.
+        Parameters
+        ----------
+        elbow_angle: int | float
+            The elbow angle in degrees. It must be between 0 and 180 degrees.
+            If elbow_angle is a list, the function will use the first element of the list.
+        """
         # Load a predefined model
-        self.model = Model(self.model_path)  #TODO : relative path
+        self.model = Model(self.model_path)  # TODO : relative path
         # Get number of q, qdot, qddot
         nq = self.model.nbQ()
         nqdot = self.model.nbQdot()
@@ -209,17 +244,25 @@ class TransferForceFromPickle:
         # Choose a position/velocity/acceleration to compute dynamics from
         if nq != 2:
             raise ValueError("The number of degrees of freedom has changed.")  # 0
-        self.Q = np.array([0.0, np.radians(elbow_angle)])  # "0" arm along body and "1.57" 90° forearm position  |__.
+        self.Q = np.array(
+            [0.0, np.radians(elbow_angle)]
+        )  # "0" arm along body and "1.57" 90° forearm position  |__.
         self.Qdot = np.zeros((nqdot,))  # speed null
         self.Qddot = np.zeros((nqddot,))  # acceleration null
 
     def select_muscle_and_dof(self):
-        dof_index = self.dof_index[self.dof_name]
-        muscle_index = self.muscle_index[self.muscle_name]
-        self.muscle_moment_arm = -self.model.musclesLengthJacobian(self.Q).to_array()[muscle_index][dof_index]
+        """
+        This function is used to select the muscle and dof from the model.
+        """
+        dof_index = self.dof_name_index[self.dof_name]
+        muscle_index = self.muscle_name_index[self.muscle_name]
+        self.muscle_moment_arm = -self.model.musclesLengthJacobian(self.Q).to_array()[
+            muscle_index
+        ][dof_index]
 
     def get_muscle_force(self, local_data):
         """
+        This function is used to compute the muscle force from the local data.
         Parameters
         ----------
         local_data: array
@@ -231,14 +274,28 @@ class TransferForceFromPickle:
         """
         self.muscle_force_vector = []
         for i in range(len(local_data[0])):
-            spatial_vector = np.array([local_data[0][i], local_data[1][i], local_data[2][i], local_data[3][i], local_data[4][i], local_data[5][i]])
+            spatial_vector = np.array(
+                [
+                    local_data[0][i],
+                    local_data[1][i],
+                    local_data[2][i],
+                    local_data[3][i],
+                    local_data[4][i],
+                    local_data[5][i],
+                ]
+            )
 
             external_force = self.model.externalForceSet()
-            external_force.addInSegmentReferenceFrame(segmentName="r_ulna_radius_hand", vector=spatial_vector,
-                                                      pointOfApplication=np.array([0, 0, 0]))
+            external_force.addInSegmentReferenceFrame(
+                segmentName="r_ulna_radius_hand",
+                vector=spatial_vector,
+                pointOfApplication=np.array([0, 0, 0]),
+            )
 
-            tau = self.model.InverseDynamics(self.Q, self.Qdot, self.Qddot, external_force).to_array()
-            dof_index = self.dof_index[self.dof_name]
+            tau = self.model.InverseDynamics(
+                self.Q, self.Qdot, self.Qddot, external_force
+            ).to_array()
+            dof_index = self.dof_name_index[self.dof_name]
             tau = tau[dof_index]
             muscle_force = tau / self.muscle_moment_arm
             self.muscle_force_vector.append(muscle_force)
@@ -250,6 +307,6 @@ if __name__ == "__main__":
         in_pickle_path="essai2_florine_50Hz_400us_15mA_TR3s01_alltrains.pkl_9.pkl",
         out_pickle_path="essai2_florine_force_biceps_alltrains.pkl",
         elbow_angle=90,
-        muscle_name='BIC_long',
-        dof_name='r_ulna_radius_hand_r_elbow_flex_RotX'
+        muscle_name="BIC_long",
+        dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
     )
