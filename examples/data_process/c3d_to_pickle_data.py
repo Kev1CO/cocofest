@@ -90,14 +90,12 @@ class C3dToPickleData:
             raw_data_reindex = self.reindex_2d_list(raw_data.data, lst_index)
             self.filtered_data = self.reindex_2d_list(self.filtered_data, lst_index)
 
+            self.torque_ergometer = self.filtered_data[6]
+
             # Get force from voltage data
             if calibration_matrix_path:
-                self.calibration_matrix = self.read_text_file_to_matrix(
-                    calibration_matrix_path
-                )
-                self.filtered_6d_force = (
-                    self.calibration_matrix @ self.filtered_data[:6]
-                )
+                self.calibration_matrix = self.read_text_file_to_matrix(calibration_matrix_path)
+                self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
                 non_filtered_force = self.calibration_matrix @ raw_data_reindex[:6]
 
             else:
@@ -105,33 +103,31 @@ class C3dToPickleData:
                     if kwargs["already_calibrated"] is True:
                         self.filtered_6d_force = self.filtered_data[:6]
                     else:
-                        raise ValueError(
-                            "already_calibrated must be either True or False"
-                        )
+                        raise ValueError("already_calibrated must be either True or False")
+
                 else:
                     raise ValueError(
                         "Please specify if the data is already calibrated or not with already_calibrated input."
                         "If not, please provide a calibration matrix path"
                     )
 
-            self.torque_ergometer = self.filtered_data[6]
+            self.filtered_6d_force = self.set_zero_level(self.filtered_6d_force, average_on=[0, 20000])
+            non_filtered_force = self.set_zero_level(non_filtered_force, average_on=[0, 20000])
+            self.stim_data = self.set_zero_level(raw_data_reindex[-1], average_on=[0, 20000])
+            self.torque_ergometer = self.set_zero_level(self.torque_ergometer, average_on=[0, 20000])
+            self.filtered_data = self.set_zero_level(self.filtered_data, average_on=[0, 20000])
 
-            plt.plot(time, self.torque_ergometer)
-            plt.title("Torque ergometer")
-            plt.show()
+            # plt.plot(time, -self.filtered_data[4], label='my', color='orange')
+            # plt.plot(time, self.torque_ergometer, label='ergometer', color='red')
+            # plt.legend()
+            # plt.show()
 
-            self.filtered_6d_force = self.set_zero_level(
-                self.filtered_6d_force, average_on=[0, 20000]
-            )
-            non_filtered_force = self.set_zero_level(
-                non_filtered_force, average_on=[0, 20000]
-            )
-            self.stim_data = self.set_zero_level(
-                raw_data_reindex[-1], average_on=[0, 20000]
-            )
-            self.torque_ergometer = self.set_zero_level(
-                self.torque_ergometer, average_on=[0, 20000]
-            )
+            self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(self.filtered_data[4])
+
+            plt.plot(time, -self.filtered_6d_force[4], label='my', color='orange')
+            plt.plot(time, self.torque_ergometer, label='ergometer', color='red')
+            plt.legend()
+            #plt.show()
 
             # plt.plot(time, -self.filtered_6d_force[0], color='blue', alpha=0.5, label='low pass 10Hz')
             # plt.plot(time, -non_filtered_force[0], color='green', alpha=0.5, label='no filter')
@@ -168,6 +164,12 @@ class C3dToPickleData:
                 # plt.scatter(stimulation_time, [0] * len(stimulation_time), color='red', label='derivative')
                 # plt.legend()
                 # plt.show()
+
+                #Add ergometer torque to data
+                if isinstance(self.filtered_6d_force, list):
+                    self.filtered_6d_force += self.torque_ergometer
+                else:
+                    self.filtered_6d_force = np.concatenate((self.filtered_6d_force, np.array(self.torque_ergometer).reshape(1, -1)))
 
                 # Slice the data from 6D file
                 self.sliced_time, self.sliced_data = self.slice_data(
@@ -232,6 +234,7 @@ class C3dToPickleData:
                         "mx": self.sliced_data[3],
                         "my": self.sliced_data[4],
                         "mz": self.sliced_data[5],
+                        "torque_ergometer": self.sliced_data[6],
                         "stim_time": stimulation_time,
                     }
                     with open(save_pickle_path, "wb") as file:
@@ -254,6 +257,7 @@ class C3dToPickleData:
                     "mx": self.filtered_6d_force[3],
                     "my": self.filtered_6d_force[4],
                     "mz": self.filtered_6d_force[5],
+                    "torque_ergometer": self.filtered_6d_force[6],
                     "stim_time": raw_data[6],
                 }
                 with open(save_pickle_path, "wb") as file:
@@ -413,6 +417,7 @@ class C3dToPickleData:
         mx = []
         my = []
         mz = []
+        torque_ergometer = []
 
         sliced_time = []
 
@@ -440,6 +445,7 @@ class C3dToPickleData:
             mx.append(data[3][first:last].tolist())
             my.append(data[4][first:last].tolist())
             mz.append(data[5][first:last].tolist())
+            torque_ergometer.append(data[6][first:last].tolist())
             sliced_time.append(time[first:last])
 
             i += 1
@@ -448,7 +454,7 @@ class C3dToPickleData:
                 peaks for peaks in temp_stimulation_index if peaks > last
             ]
 
-        sliced_data = [x, y, z, mx, my, mz]
+        sliced_data = [x, y, z, mx, my, mz, torque_ergometer]
 
         return sliced_time, sliced_data
 

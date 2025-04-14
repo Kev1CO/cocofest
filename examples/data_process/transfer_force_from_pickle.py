@@ -85,9 +85,7 @@ class TransferForceFromPickle:
         )
 
         for i in range(len(in_pickle_path_list)):
-            force_data, torque_data = self.read_pkl_to_force_vector(
-                in_pickle_path_list[i]
-            )
+            force_data, torque_data, torque_ergo_data = self.read_pkl_to_force_vector(in_pickle_path_list[i])
 
             plt.plot(self.time, force_data[0], label="force x", color="blue")
             plt.plot(self.time, force_data[1], label="force y", color="orange")
@@ -158,16 +156,18 @@ class TransferForceFromPickle:
                 mx = list(chain.from_iterable(data["mx"]))
                 my = list(chain.from_iterable(data["my"]))
                 mz = list(chain.from_iterable(data["mz"]))
+                torque_ergometer = list(chain.from_iterable(data["torque_ergometer"]))
 
                 force_data = np.array([x, y, z])
                 torque_data = np.array([mx, my, mz])
+                torque_ergo_data = np.array([torque_ergometer])
 
                 self.time = list(chain.from_iterable(data["time"]))
                 self.stim_time = data["stim_time"]
         else:
             raise ValueError("pickle_path must be a string")
 
-        return force_data, torque_data
+        return force_data, torque_data, torque_ergo_data
 
     @staticmethod
     def local_sensor_to_local_hand(sensor_data: np.array) -> np.array:
