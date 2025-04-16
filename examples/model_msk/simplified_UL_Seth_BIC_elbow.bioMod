@@ -1,0 +1,257 @@
+version 4
+
+// File extracted from /simplified_UL_Seth.osim
+
+//Publication : Holzbaur, K.R.S., Murray, W.M., Delp, S.L. A Model of the Upper Extremity for Simulating Musculoskeletal Surgery and Analyzing Neuromuscular Control. Annals of Biomedical Engineering, vol 33, pp 829�840, 2005
+
+//Credit : The OpenSim Development Team (Reinbolt, J; Seth, A; Habib, A; Hamner, S) adapted from a model originally created by Kate Holzbaur (11/22/04) License: Creative Commons (CCBY 3.0). You are free to distribute, remix, tweak, and build upon this work, even commercially, as long as you credit us for the original creation. http://creativecommons.org/licenses/by/3.0/
+
+//Force units : N
+
+//Length units : meters
+
+
+gravity	0 -9.8065999999999995 0
+
+// SEGMENT DEFINITION
+
+// Information about ground segment
+    segment base
+        // meshfile mesh/ground_ribs.vtp
+    endsegment
+
+// Information about r_humerus segment
+	// Segment
+	segment r_humerus_parent_offset
+		parent ground
+		RTinMatrix	0
+		RT	0 0 0	xyz	-0.017545000000000002 -0.0070000000000000001 0.17000000000000001
+	endsegment
+
+	// Segments to define transformation axis.
+	// Segment
+	segment r_humerus_translation
+		parent r_humerus_parent_offset
+		RTinMatrix	1
+		RT
+			1.0		0.0		0.0		0
+			0.0		1.0		0.0		0
+			0.0		0.0		1.0		0
+			0		0		0		1
+	endsegment
+
+	// Segment
+	segment r_humerus_r_shoulder_elev
+		parent r_humerus_translation
+		RTinMatrix	1
+		RT
+			0.0		1.0		0.0		0.0
+			0.0		0.0		1.0		0
+			1.0		0.0		0.0		0
+			0		0		0		1
+        // rotations x
+		// ranges
+				// -1.5707963300000001 3.1415926500000002
+	endsegment
+
+	// Segment
+	segment r_humerus_rotation_1
+		parent r_humerus_r_shoulder_elev
+		RTinMatrix	1
+		RT
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		1.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+		// ranges
+				// -1.5707963300000001 3.1415926500000002
+	endsegment
+
+	// Segment
+	segment r_humerus_rotation_2
+		parent r_humerus_rotation_1
+		RTinMatrix	1
+		RT
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		1.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+		// ranges
+				// -1.5707963300000001 3.1415926500000002
+	endsegment
+
+
+    // Segment to cancel transformation bases effect.
+	// Segment
+	segment r_humerus_reset_axis
+		parent r_humerus_rotation_2
+		RTinMatrix	1
+		RT
+			0.0		1.0		0.0		0.0
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+	endsegment
+
+
+    //True segment where are applied inertial values.
+	// Segment
+	segment r_humerus
+		parent r_humerus_reset_axis
+		RTinMatrix	0
+		RT	-0.0	 0.0	 -0.0	xyz	-0.0	 -0.0	 -0.0
+		mass	1.8645719999999999
+		inertia
+			0.01481	0	0
+			0	0.0045510000000000004	0
+			0	0	0.013193
+		com	0 -0.18049599999999999 0
+		meshfile	Geometry/arm_r_humerus.vtp
+		meshcolor	1 1 1
+		meshscale	1 1 1
+	endsegment
+
+// Information about r_ulna_radius_hand segment
+	// Segment
+	segment r_ulna_radius_hand_parent_offset
+		parent r_humerus
+		RTinMatrix	0
+		RT	0 0 0	xyz	0.0061000000000000004 -0.29039999999999999 -0.0123
+	endsegment
+
+	// Segments to define transformation axis.
+	// Segment
+	segment r_ulna_radius_hand_translation
+		parent r_ulna_radius_hand_parent_offset
+		RTinMatrix	1
+		RT
+			1.0		0.0		0.0		0
+			0.0		1.0		0.0		0
+			0.0		0.0		1.0		0
+			0		0		0		1
+	endsegment
+
+	// Segment
+	segment r_ulna_radius_hand_r_elbow_flex
+		parent r_ulna_radius_hand_translation
+		RTinMatrix	1
+		RT
+			0.0		1.0		0.0		0.0
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+		rotations x
+		ranges
+				0 3
+	endsegment
+
+	// Segment
+	segment r_ulna_radius_hand_rotation_1
+		parent r_ulna_radius_hand_r_elbow_flex
+		RTinMatrix	1
+		RT
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		1.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+		// ranges
+				// 0 2.2689280300000001
+	endsegment
+
+	// Segment
+	segment r_ulna_radius_hand_rotation_2
+		parent r_ulna_radius_hand_rotation_1
+		RTinMatrix	1
+		RT
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		1.0		0.0		0.0
+			0.0		0.0		0.0		1
+		// ranges
+				// 0 2.2689280300000001
+	endsegment
+
+
+    // Segment to cancel transformation bases effect.
+	// Segment
+	segment r_ulna_radius_hand_reset_axis
+		parent r_ulna_radius_hand_rotation_2
+		RTinMatrix	1
+		RT
+			0.0		1.0		0.0		0.0
+			0.0		0.0		1.0		0.0
+			1.0		0.0		0.0		0.0
+			0.0		0.0		0.0		1.0
+	endsegment
+
+	// Segment
+    //True segment where are applied inertial values.
+	// Segment
+	segment r_ulna_radius_hand
+		parent r_ulna_radius_hand_reset_axis
+		RTinMatrix	0
+		RT	0	 0	 0	xyz	0	 0	 0
+		mass	1.5343150000000001
+		inertia
+			0.019281	0	0
+			0	0.0015709999999999999	0
+			0	0	0.020062
+		com	0 -0.181479 0
+		meshfile	Geometry/arm_r_ulna.vtp
+		meshcolor	1 1 1
+		meshscale	1 1 1
+	endsegment
+
+	marker    hand
+        parent    r_ulna_radius_hand
+        position    0.04 -0.32 0.075
+    endmarker
+
+// MUSCLE DEFINIION
+
+// base > r_humerus
+musclegroup ground_to_r_humerus
+	OriginParent	base
+	InsertionParent	r_humerus
+endmusclegroup
+
+// base > r_ulna_radius_hand
+musclegroup ground_to_r_ulna_radius_hand
+	OriginParent	base
+	InsertionParent	r_ulna_radius_hand
+endmusclegroup
+
+	muscle	BIC_long
+		type	hill
+		statetype	degroote
+		musclegroup	ground_to_r_ulna_radius_hand
+		OriginPosition	-0.029999999999999999 0.01 0.14499999999999999
+		InsertionPosition	-0.019 -0.059999999999999998 0.027
+		optimalLength	0.1421
+		maximalForce	485.80000000000001
+		tendonSlackLength	0.25679999999999997
+		pennationAngle	0
+		maxVelocity	10
+	endmuscle
+
+		viapoint	BIC_long-P2
+			parent	r_humerus
+			muscle	BIC_long
+			musclegroup	ground_to_r_ulna_radius_hand
+			position	0.011830631116962682 0.02814188158731026 0.020038375639319206
+		endviapoint
+
+	muscle	BIC_brevis
+		type	hill
+		statetype	degroote
+		musclegroup	ground_to_r_ulna_radius_hand
+		OriginPosition	0.001 -0.014999999999999999 0.13400000000000001
+		InsertionPosition	-0.02 -0.059999999999999998 0.029000000000000001
+		optimalLength	0.12640000000000001
+		maximalForce	693
+		tendonSlackLength	0.21199999999999999
+		pennationAngle	0
+		maxVelocity	10
+	endmuscle
+
+/*-------------- WARNINGS---------------
