@@ -39,6 +39,32 @@ class FES_plot:
             "Is": 1,
             "cr": 3,
         }
+        self.param_max_bounds = {
+            "a_rest": 10000,
+            "km_rest": 1,
+            "tau1_rest": 1,
+            "tau2": 1,
+            "pd0": 6e-4,
+            "pdt": 6e-4,
+            "a_scale": 10000,
+            "ar": 1,
+            "bs": 0.1,
+            "Is": 150,
+            "cr": 2,
+        }
+        self.param_min_bounds = {
+            "a_rest": 1,
+            "km_rest": 0.001,
+            "tau1_rest": 0.0001,
+            "tau2": 0.0001,
+            "pd0": 1e-4,
+            "pdt": 1e-4,
+            "a_scale": 1,
+            "ar": 0.01,
+            "bs": 0.001,
+            "Is": 1,
+            "cr": 0.01,
+        }
 
     def plot(
         self,
@@ -47,12 +73,23 @@ class FES_plot:
         show_bounds: bool = False,
         tracked_data=None,
         default_model=None,
+        stim_time=None,
+        exp_data=False,
     ):
         if isinstance(self.data, Solution):
             if isinstance(self.data.ocp.nlp[0].model, FesMskModel):
                 self.msk_plot(title, show_stim, show_bounds)
-            elif any(parameter in self.data.parameters.keys() for parameter in self.identifiable_parameters):
-                self.id_plot(title=title, tracked_data=tracked_data, default_model=default_model)
+            elif any(
+                parameter in self.data.parameters.keys()
+                for parameter in self.identifiable_parameters
+            ):
+                self.id_plot(
+                    title=title,
+                    tracked_data=tracked_data,
+                    default_model=default_model,
+                    stim_time=stim_time,
+                    exp_data=exp_data,
+                )
             else:
                 self.ocp_plot(title, show_stim, show_bounds)
 
@@ -76,10 +113,19 @@ class FES_plot:
         return q, qdot, tau, force, time
 
     def get_msk_bounds(self, solution: Solution):
-        q_bounds = [solution.ocp.nlp[0].x_bounds["q"].min[0], solution.ocp.nlp[0].x_bounds["q"].max[0]]
-        qdot_bounds = [solution.ocp.nlp[0].x_bounds["qdot"].min[0], solution.ocp.nlp[0].x_bounds["qdot"].max[0]]
+        q_bounds = [
+            solution.ocp.nlp[0].x_bounds["q"].min[0],
+            solution.ocp.nlp[0].x_bounds["q"].max[0],
+        ]
+        qdot_bounds = [
+            solution.ocp.nlp[0].x_bounds["qdot"].min[0],
+            solution.ocp.nlp[0].x_bounds["qdot"].max[0],
+        ]
         tau_bounds = (
-            [solution.ocp.nlp[0].u_bounds["tau"].min[0], solution.ocp.nlp[0].u_bounds["tau"].max[0]]
+            [
+                solution.ocp.nlp[0].u_bounds["tau"].min[0],
+                solution.ocp.nlp[0].u_bounds["tau"].max[0],
+            ]
             if "tau" in solution.ocp.nlp[0].u_bounds
             else None
         )
@@ -89,35 +135,85 @@ class FES_plot:
                 solution.ocp.nlp[0].x_bounds[self.force_keys[i]].min[0],
                 solution.ocp.nlp[0].x_bounds[self.force_keys[i]].max[0],
             ]
-        bounds = {"q": q_bounds, "qdot": qdot_bounds, "tau": tau_bounds, "force": force_bounds}
+        bounds = {
+            "q": q_bounds,
+            "qdot": qdot_bounds,
+            "tau": tau_bounds,
+            "force": force_bounds,
+        }
         return bounds
 
     def get_bounds(self, solution: Solution):
-        if solution.ocp.nlp[0].x_bounds.type == InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT:
+        if (
+            solution.ocp.nlp[0].x_bounds.type
+            == InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT
+        ):
             solution_bounds = solution.ocp.nlp[0].x_bounds
-            cn_bounds = [list(solution_bounds["Cn"].min[0]), list(solution_bounds["Cn"].max[0])]
-            force_bounds = [list(solution_bounds["F"].min[0]), list(solution_bounds["F"].max[0])]
+            cn_bounds = [
+                list(solution_bounds["Cn"].min[0]),
+                list(solution_bounds["Cn"].max[0]),
+            ]
+            force_bounds = [
+                list(solution_bounds["F"].min[0]),
+                list(solution_bounds["F"].max[0]),
+            ]
             bounds = {"cn": cn_bounds, "force": force_bounds}
             if solution.ocp.nlp[0].model._with_fatigue:
-                a_bounds = [list(solution_bounds["A"].min[0]), list(solution_bounds["A"].max[0])]
-                tau1_bounds = [list(solution_bounds["Tau1"].min[0]), list(solution_bounds["Tau1"].max[0])]
-                km_bounds = [list(solution_bounds["Km"].min[0]), list(solution_bounds["Km"].max[0])]
-                bounds = {"cn": cn_bounds, "force": force_bounds, "a": a_bounds, "tau1": tau1_bounds, "km": km_bounds}
+                a_bounds = [
+                    list(solution_bounds["A"].min[0]),
+                    list(solution_bounds["A"].max[0]),
+                ]
+                tau1_bounds = [
+                    list(solution_bounds["Tau1"].min[0]),
+                    list(solution_bounds["Tau1"].max[0]),
+                ]
+                km_bounds = [
+                    list(solution_bounds["Km"].min[0]),
+                    list(solution_bounds["Km"].max[0]),
+                ]
+                bounds = {
+                    "cn": cn_bounds,
+                    "force": force_bounds,
+                    "a": a_bounds,
+                    "tau1": tau1_bounds,
+                    "km": km_bounds,
+                }
 
             temp_time = solution.decision_time(to_merge=SolutionMerge.NODES).T[0]
             bound_time = [temp_time[0], temp_time[1], temp_time[-1]]
 
         elif solution.ocp.nlp[0].x_bounds.type == InterpolationType.EACH_FRAME:
             solution_bounds = solution.ocp.nlp[0].x_bounds
-            cn_bounds = [list(solution_bounds["Cn"].min[0]), list(solution_bounds["Cn"].max[0])]
-            force_bounds = [list(solution_bounds["F"].min[0]), list(solution_bounds["F"].max[0])]
+            cn_bounds = [
+                list(solution_bounds["Cn"].min[0]),
+                list(solution_bounds["Cn"].max[0]),
+            ]
+            force_bounds = [
+                list(solution_bounds["F"].min[0]),
+                list(solution_bounds["F"].max[0]),
+            ]
             bounds = {"cn": cn_bounds, "force": force_bounds}
 
             if solution.ocp.nlp[0].model._with_fatigue:
-                a_bounds = [list(solution_bounds["A"].min[0]), list(solution_bounds["A"].max[0])]
-                tau1_bounds = [list(solution_bounds["Tau1"].min[0]), list(solution_bounds["Tau1"].max[0])]
-                km_bounds = [list(solution_bounds["Km"].min[0]), list(solution_bounds["Km"].max[0])]
-                bounds = {"cn": cn_bounds, "force": force_bounds, "a": a_bounds, "tau1": tau1_bounds, "km": km_bounds}
+                a_bounds = [
+                    list(solution_bounds["A"].min[0]),
+                    list(solution_bounds["A"].max[0]),
+                ]
+                tau1_bounds = [
+                    list(solution_bounds["Tau1"].min[0]),
+                    list(solution_bounds["Tau1"].max[0]),
+                ]
+                km_bounds = [
+                    list(solution_bounds["Km"].min[0]),
+                    list(solution_bounds["Km"].max[0]),
+                ]
+                bounds = {
+                    "cn": cn_bounds,
+                    "force": force_bounds,
+                    "a": a_bounds,
+                    "tau1": tau1_bounds,
+                    "km": km_bounds,
+                }
 
             bound_time = solution.decision_time(to_merge=SolutionMerge.NODES).T[0]
 
@@ -157,7 +253,14 @@ class FES_plot:
         axis.set_xlabel("Time [s]")
 
     def build_several_y_axis_FES(
-        self, axis, time, values, labels: list = None, stim_time=None, stim_values=None, axes_title=None
+        self,
+        axis,
+        time,
+        values,
+        labels: list = None,
+        stim_time=None,
+        stim_values=None,
+        axes_title=None,
     ):
         n = len(labels)
         cmap = plt.get_cmap("tab20b", n)
@@ -176,7 +279,12 @@ class FES_plot:
             lines_list.append(lines)
             labels_list.append(fig_labels)
             if i == 0:
-                [axes_list[i].plot(time, values[j], color=colors[j], label=labels[j], lw=3) for j in range(n)]
+                [
+                    axes_list[i].plot(
+                        time, values[j], color=colors[j], label=labels[j], lw=3
+                    )
+                    for j in range(n)
+                ]
             if i == 1:
                 stim_offset = (
                     [(i - n // 2) * 0.01 for i in range(n)]
@@ -211,7 +319,9 @@ class FES_plot:
         self.axes_settings([twin_ax])
         return twin_ax, line
 
-    def ocp_plot(self, title: str = None, show_stim: bool = True, show_bounds: bool = True):
+    def ocp_plot(
+        self, title: str = None, show_stim: bool = True, show_bounds: bool = True
+    ):
         solution = self.data
         states = solution.stepwise_states(to_merge=SolutionMerge.NODES)
         time = solution.stepwise_time(to_merge=SolutionMerge.NODES).T[0]
@@ -246,17 +356,45 @@ class FES_plot:
 
         # Create twin for Force
         ax1_force, line_force = self.create_twin_axes(
-            ax1, time, force, label="Force", color="darkred", lw=3, ylabel="Force (N)", tick_color="darkred"
+            ax1,
+            time,
+            force,
+            label="Force",
+            color="darkred",
+            lw=3,
+            ylabel="Force (N)",
+            tick_color="darkred",
         )
 
         if show_stim:
             for stim in stim_time:
                 ax1.axvline(stim, color="goldenrod", linestyle="--", lw=1)
-            offset = 0.01 * (stim_time[-1] - stim_time[0]) / (stim_time[-1] - stim_time[0])
-            ax1.text(stim_time[0] - offset, 0, "Stimulation", rotation=90, color="goldenrod", fontsize=10)
+            offset = (
+                0.01 * (stim_time[-1] - stim_time[0]) / (stim_time[-1] - stim_time[0])
+            )
+            ax1.text(
+                stim_time[0] - offset,
+                0,
+                "Stimulation",
+                rotation=90,
+                color="goldenrod",
+                fontsize=10,
+            )
         if show_bounds:
-            ax1.fill_between(bounds_time, bounds["cn"][0], bounds["cn"][1], color="royalblue", alpha=0.2)
-            ax1_force.fill_between(bounds_time, bounds["force"][0], bounds["force"][1], color="darkred", alpha=0.2)
+            ax1.fill_between(
+                bounds_time,
+                bounds["cn"][0],
+                bounds["cn"][1],
+                color="royalblue",
+                alpha=0.2,
+            )
+            ax1_force.fill_between(
+                bounds_time,
+                bounds["force"][0],
+                bounds["force"][1],
+                color="darkred",
+                alpha=0.2,
+            )
 
         # Combine legends from ax1 and its twin
         lines = [line_cn, line_force]
@@ -291,9 +429,27 @@ class FES_plot:
             ax2.legend(lines2, labels2, fontsize=10, fancybox=True, shadow=True)
 
             if show_bounds:
-                ax2.fill_between(bounds_time, bounds["a"][0], bounds["a"][1], color="forestgreen", alpha=0.2)
-                ax2_twin.fill_between(bounds_time, bounds["km"][0], bounds["km"][1], color="crimson", alpha=0.2)
-                ax2_twin.fill_between(bounds_time, bounds["tau1"][0], bounds["tau1"][1], color="purple", alpha=0.2)
+                ax2.fill_between(
+                    bounds_time,
+                    bounds["a"][0],
+                    bounds["a"][1],
+                    color="forestgreen",
+                    alpha=0.2,
+                )
+                ax2_twin.fill_between(
+                    bounds_time,
+                    bounds["km"][0],
+                    bounds["km"][1],
+                    color="crimson",
+                    alpha=0.2,
+                )
+                ax2_twin.fill_between(
+                    bounds_time,
+                    bounds["tau1"][0],
+                    bounds["tau1"][1],
+                    color="purple",
+                    alpha=0.2,
+                )
 
         fig.suptitle(title, fontsize=16, fontweight="bold")
         plt.tight_layout(rect=(0, 0, 1, 0.96))
@@ -337,7 +493,14 @@ class FES_plot:
 
         # Create twin for Force
         ax1_force, line_force = self.create_twin_axes(
-            ax1, time, force, label="Force", color="darkred", lw=3, ylabel="Force (N)", tick_color="darkred"
+            ax1,
+            time,
+            force,
+            label="Force",
+            color="darkred",
+            lw=3,
+            ylabel="Force (N)",
+            tick_color="darkred",
         )
 
         # Combine legends from ax1 and its twin
@@ -376,9 +539,13 @@ class FES_plot:
         plt.tight_layout(rect=(0, 0, 1, 0.96))
         plt.show()
 
-    def msk_plot(self, title: str = None, show_stim: bool = True, show_bounds: bool = True):
+    def msk_plot(
+        self, title: str = None, show_stim: bool = True, show_bounds: bool = True
+    ):
         solution = self.data
-        self.force_keys = [key for key in solution.stepwise_states().keys() if key.startswith("F_")]
+        self.force_keys = [
+            key for key in solution.stepwise_states().keys() if key.startswith("F_")
+        ]
         q, qdot, tau, force, time = self.get_data(solution)
         bounds = self.get_msk_bounds(solution) if show_bounds else None
 
@@ -407,7 +574,9 @@ class FES_plot:
         axs[1, 0].set_title("Torque (N.m)")
 
         # Forces
-        stim_time = np.array(solution.ocp.nlp[0].model.muscles_dynamics_model[0].stim_time)
+        stim_time = np.array(
+            solution.ocp.nlp[0].model.muscles_dynamics_model[0].stim_time
+        )
         stim_values = solution.parameters
         # Todo normalize stim_value to yaxis scale
 
@@ -415,7 +584,10 @@ class FES_plot:
 
         fes_parameter_label = (
             "Pulse width (us)"
-            if isinstance(solution.ocp.nlp[0].model.muscles_dynamics_model[0], DingModelPulseWidthFrequency)
+            if isinstance(
+                solution.ocp.nlp[0].model.muscles_dynamics_model[0],
+                DingModelPulseWidthFrequency,
+            )
             else "Pulse intensity (mA)"
         )
         axes_title = [force_label, fes_parameter_label]
@@ -439,37 +611,118 @@ class FES_plot:
         Returns a dictionary mapping parameter names to their values.
         """
         solution = self.data
-        return {key: identified.parameters[key][0] for key in solution.parameters.keys()}
+        return {
+            key: identified.parameters[key][0] for key in solution.parameters.keys()
+        }
 
-    def annotate_parameters(self, ax, identified_params, default_model=None):
+    def annotate_parameters(
+        self, ax, identified_params, default_model=None, exp_data=False
+    ):
         """
         Annotate the plot with parameter names, the identified values, and default values.
         The names are annotated in black, identified values in red, and default values in blue.
         """
-        for i, key in enumerate(identified_params.keys()):
-            y = 0.99 - i * self.y_step
-            ax.annotate(f"{key} :", xy=(0.7, y), xycoords="axes fraction", color="black", ha="right", va="top")
+        if exp_data:
             ax.annotate(
-                f"{round(identified_params[key], min(self.default_decimal_values[key], 6))}",
-                xy=(0.99, y),
+                "max bounds",
+                xy=(0.99, 0.99),
+                xycoords="axes fraction",
+                color="black",
+                ha="right",
+                va="top",
+            )
+            ax.annotate(
+                "min bounds",
+                xy=(0.7, 0.99),
+                xycoords="axes fraction",
+                color="black",
+                ha="right",
+                va="top",
+            )
+            ax.annotate(
+                "identified values",
+                xy=(0.85, 0.99),
                 xycoords="axes fraction",
                 color="red",
                 ha="right",
                 va="top",
             )
-
-            if default_model:
+            for (
+                i,
+                key,
+            ) in enumerate(identified_params.keys()):
+                y = 0.99 - (i + 1) * self.y_step
                 ax.annotate(
-                    f"{round(getattr(default_model, key), min(self.default_decimal_values[key], 6))}",
+                    f"{key} :",
+                    xy=(0.55, y),
+                    xycoords="axes fraction",
+                    color="black",
+                    ha="right",
+                    va="top",
+                )
+                ax.annotate(
+                    f"{self.param_min_bounds[key]}",
+                    xy=(0.7, y),
+                    xycoords="axes fraction",
+                    color="black",
+                    ha="right",
+                    va="top",
+                )
+                ax.annotate(
+                    f"{round(identified_params[key], min(self.default_decimal_values[key], 6))}",
                     xy=(0.85, y),
                     xycoords="axes fraction",
-                    color="blue",
+                    color="red",
+                    ha="right",
+                    va="top",
+                )
+                ax.annotate(
+                    f"{self.param_max_bounds[key]}",
+                    xy=(0.99, y),
+                    xycoords="axes fraction",
+                    color="black",
+                    ha="right",
+                    va="top",
+                )
+        else:
+            for i, key in enumerate(identified_params.keys()):
+                y = 0.99 - i * self.y_step
+                ax.annotate(
+                    f"{key} :",
+                    xy=(0.7, y),
+                    xycoords="axes fraction",
+                    color="black",
+                    ha="right",
+                    va="top",
+                )
+                ax.annotate(
+                    f"{round(identified_params[key], min(self.default_decimal_values[key], 6))}",
+                    xy=(0.99, y),
+                    xycoords="axes fraction",
+                    color="red",
                     ha="right",
                     va="top",
                 )
 
+                if default_model:
+                    ax.annotate(
+                        f"{round(getattr(default_model, key), min(self.default_decimal_values[key], 6))}",
+                        xy=(0.85, y),
+                        xycoords="axes fraction",
+                        color="blue",
+                        ha="right",
+                        va="top",
+                    )
+
     def id_plot(
-        self, title: str = None, show_stim: bool = True, show_bounds: bool = True, tracked_data: dict = None, default_model=None
+        self,
+        title: str = None,
+        show_stim: bool = True,
+        show_bounds: bool = True,
+        tracked_data: dict = None,
+        default_model=None,
+        stim_time=None,
+        exp_data=False,
     ):
         solution = self.data
         identified_params = self.extract_identified_parameters(solution)
@@ -490,15 +743,37 @@ class FES_plot:
         ax.plot(sol_time, sol_force, color="red", label="identified")
 
         if tracked_data is not None:
-            print("Tracked data:", tracked_data)
-            print("Tracked data type:", type(tracked_data))
-
             tracked_data_time = tracked_data["time"]
             tracked_data_force = tracked_data["force"]
 
-            ax.plot(tracked_data_time, tracked_data_force, color="blue", label="simulated")
+            if exp_data:
+                ax.plot(
+                    tracked_data_time,
+                    tracked_data_force,
+                    color="blue",
+                    label="experimental",
+                    alpha=0.5,
+                )
+            else:
+                ax.plot(
+                    tracked_data_time,
+                    tracked_data_force,
+                    color="blue",
+                    label="simulated",
+                    alpha=0.5,
+                )
 
-        self.annotate_parameters(ax, identified_params, default_model)
+        self.annotate_parameters(
+            ax=ax,
+            identified_params=identified_params,
+            default_model=default_model,
+            exp_data=exp_data,
+        )
+
+        if (show_stim and stim_time) or (show_stim and default_model):
+            plt.scatter(
+                stim_time, [0] * len(stim_time), color="green", label="stimulations"
+            )
 
         ax.legend()
         plt.show()
