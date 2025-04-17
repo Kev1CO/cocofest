@@ -762,6 +762,14 @@ class FES_plot:
                     label="simulated",
                     alpha=0.5,
                 )
+            if (show_stim and stim_time) or (show_stim and default_model):
+                data_stim = np.interp(stim_time, tracked_data_time, tracked_data_force)
+                plt.scatter(
+                    stim_time, data_stim, color="green", label="stimulations"
+                )
+        else:
+            if (show_stim and stim_time) or (show_stim and default_model):
+                plt.scatter(stim_time, [0] * len(stim_time), color="green", label="stimulations")
 
         self.annotate_parameters(
             ax=ax,
@@ -769,11 +777,6 @@ class FES_plot:
             default_model=default_model,
             exp_data=exp_data,
         )
-
-        if (show_stim and stim_time) or (show_stim and default_model):
-            plt.scatter(
-                stim_time, [0] * len(stim_time), color="green", label="stimulations"
-            )
 
         ax.legend()
         plt.show()
