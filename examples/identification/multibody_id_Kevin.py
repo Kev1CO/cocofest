@@ -49,8 +49,8 @@ def prepare_ocp_simulation(model: FesMskModel, final_time: float, msk_info: dict
         weight=1,
         quadratic=True,
     )
-    objective_functions.add(ObjectiveFcn.Mayer.MINIMIZE_STATE, target=120, weight=5, node=Node.MID, quadratic=True, key='q')
-
+    objective_functions.add(ObjectiveFcn.Mayer.MINIMIZE_STATE, target=120, weight=5, node=Node.MID, quadratic=True,
+                            key='q')
 
     model = OcpFesMsk.update_model(model, parameters=ParameterList(use_sx=False), external_force_set=None)
 
@@ -77,12 +77,12 @@ def simulate_data(model: FesMskModel, msk_info: dict, final_time: float):
     Q = state["q"]
     time = sol.decision_time(to_merge=SolutionMerge.NODES).T[0]
     last_pulse_width_BIClong = sol.decision_controls(to_merge=SolutionMerge.NODES)["last_pulse_width_BIClong"][0]
-    #last_pulse_width_BICshort = sol.decision_controls(to_merge=SolutionMerge.NODES)["last_pulse_width_BICshort"][0]
+    last_pulse_width_BICshort = sol.decision_controls(to_merge=SolutionMerge.NODES)["last_pulse_width_BICshort"][0]
 
     data = {
         "time": time,
         "q": Q[0],
-        #"last_pulse_width_BICshort": last_pulse_width_BICshort,
+        "last_pulse_width_BICshort": last_pulse_width_BICshort,
         "last_pulse_width_BIClong": last_pulse_width_BIClong,
     }
     return data
@@ -97,7 +97,6 @@ def read_pkl(pkl_path):
     with open(pkl_path, "rb") as file:
         data = pickle.load(file)
     return data
-
 
 def prepare_ocp(
     model,
@@ -156,7 +155,7 @@ def prepare_ocp(
     )
 
     x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME, phase=0)
-    additional_key_settings = OcpFesId.set_default_values(model=model.muscles_dynamics_model[0])
+    additional_key_settings = OcpFesIdMultibody.set_default_values(msk_model=model)
 
     parameters, parameters_bounds, parameters_init = OcpFesId.set_parameters(
         parameter_to_identify=key_parameter_to_identify,
@@ -171,7 +170,7 @@ def prepare_ocp(
             param_scaling = parameters[param_key].scaling.scaling
             param_reduced = parameters[param_key].cx
             fes_model_for_param_key = [
-                fes_model[i] for i in range(len(fes_model)) #if fes_model[i].muscle_name in param_key
+                fes_model[i] for i in range(len(fes_model)) if fes_model[i].muscle_name in param_key
             ][0]
             parameters[param_key].function(
                 fes_model_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
@@ -202,13 +201,13 @@ def main(plot=True):
     n_stim = 33
     stim_time = list(np.linspace(0, 1, n_stim + 1)[:-1])
     model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
-    #model_BIClong.a_scale = 5000
-    #model_BIClong.tau1_rest = 0.07
-    #model_BIClong.tau2 = 0.002
-    #model_BIClong.km_rest = 0.200
-    #model_BIClong.pd0 = 0.000200
-    #model_BIClong.pdt = 0.000250
-    #model_BICshort = DingModelPulseWidthFrequency(muscle_name="BICshort", sum_stim_truncation=10)
+    # model_BIClong.a_scale = 5000
+    # model_BIClong.tau1_rest = 0.07
+    # model_BIClong.tau2 = 0.002
+    # model_BIClong.km_rest = 0.200
+    # model_BIClong.pd0 = 0.000200
+    # model_BIClong.pdt = 0.000250
+    model_BICshort = DingModelPulseWidthFrequency(muscle_name="BICshort", sum_stim_truncation=10)
     #model_BICshort.a_scale = 4800
     #model_BICshort.tau1_rest = 0.05
     #model_BICshort.tau2 = 0.001
@@ -218,8 +217,8 @@ def main(plot=True):
 
     model = FesMskModel(
         name=None,
-        biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
-        muscles_model=[model_BIClong],
+        biorbd_path="../model_msk/arm26_allbiceps_1dof.bioMod",
+        muscles_model=[model_BIClong, model_BICshort],
         stim_time=stim_time,
         activate_force_length_relationship=True,
         activate_force_velocity_relationship=True,
@@ -231,16 +230,15 @@ def main(plot=True):
     msk_info = {
         "with_residual_torque": False,
         "bound_type": "start_end",
-        "bound_data": [[20], [20]], # end à 20
+        "bound_data": [[20], [20]],
     }
 
-    #sim_data = simulate_data(model, msk_info, final_time)
-    sim_data = read_pkl("simulation_data.pkl")
+    sim_data = simulate_data(model, msk_info, final_time)
     pulse_width_values_BIClong = sim_data["last_pulse_width_BIClong"]
-    #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
+    pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
     pulse_width_values = {
         "last_pulse_width_BIClong": pulse_width_values_BIClong,
-        #"last_pulse_width_BICshort": pulse_width_values_BICshort,
+        "last_pulse_width_BICshort": pulse_width_values_BICshort,
     }
 
     ocp = prepare_ocp(
@@ -248,18 +246,24 @@ def main(plot=True):
         final_time,
         pulse_width_values,
         key_parameter_to_identify=[
-            "tau1_rest",
-            "tau2",
-            "km_rest",
-            "a_scale",
-            "pd0",
-            "pdt",
+            "tau1_rest_BICshort",
+            "tau2_BICshort",
+            "km_rest_BICshort",
+            "a_scale_BICshort",
+            "pd0_BICshort",
+            "pdt_BICshort",
+            "tau1_rest_BIClong",
+            "tau2_BIClong",
+            "km_rest_BIClong",
+            "a_scale_BIClong",
+            "pd0_BIClong",
+            "pdt_BIClong",
         ],
         q_target=sim_data["q"],
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000))
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():
@@ -268,20 +272,19 @@ def main(plot=True):
     sol_time = sol.decision_time(to_merge=SolutionMerge.NODES).T[0]
     sol_Q = sol.decision_states(to_merge=SolutionMerge.NODES)["q"][0]
 
-    if plot:
-        # Plot the simulation and identification results
-        fig, ax = plt.subplots()
-        ax.set_title("Identification")
-        ax.set_xlabel("time (s)")
-        ax.set_ylabel("q (radian)")
+    # Plot the simulation and identification results
+    fig, ax = plt.subplots()
+    ax.set_title("Identification")
+    ax.set_xlabel("time (s)")
+    ax.set_ylabel("q (radian)")
 
-        ax.plot(sol_time, sol_Q, label="Identified q")
-        ax.plot(sim_data["time"], sim_data["q"], label="Simulated q")
+    ax.plot(sol_time, sol_Q, label="Identified q")
+    ax.plot(sim_data["time"], sim_data["q"], label="Simulated q")
 
-        ax.legend()
-        plt.show()
-        # sol.graphs(show_bounds=True)
-        sol.animate()
+    ax.legend()
+    plt.show()
+    # sol.graphs(show_bounds=True)
+    sol.animate()
 
 
 if __name__ == "__main__":
