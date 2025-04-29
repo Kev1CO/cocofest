@@ -103,84 +103,84 @@ class OcpFesIdMultibody(OcpFesId):
             muscle_list = msk_model.muscle_names
             if isinstance(model_list[0], DingModelPulseWidthFrequency) and isinstance(model_list[1], DingModelPulseWidthFrequency):
                 return {
-                    "tau1_rest_BIC_long": {
+                    "tau1_rest_BIClong": {
                         "initial_guess": 0.5,
                         "min_bound": 0.0001,
                         "max_bound": 1,
                         "function": model_list[0].set_tau1_rest,
                         "scaling": 1,  # 10000
                     },
-                    "tau2_BIC_long": {
+                    "tau2_BIClong": {
                         "initial_guess": 0.5,
                         "min_bound": 0.0001,
                         "max_bound": 1,
                         "function": model_list[0].set_tau2,
                         "scaling": 1,  # 10000
                     },
-                    "km_rest_BIC_long": {
+                    "km_rest_BIClong": {
                         "initial_guess": 0.5,
                         "min_bound": 0.001,
                         "max_bound": 1,
                         "function": model_list[0].set_km_rest,
                         "scaling": 1,  # 10000
                     },
-                    "a_scale_BIC_long": {
+                    "a_scale_BIClong": {
                         "initial_guess": 5000,
                         "min_bound": 1,
                         "max_bound": 10000,
                         "function": model_list[0].set_a_scale,
                         "scaling": 1,
                     },
-                    "pd0_BIC_long": {
+                    "pd0_BIClong": {
                         "initial_guess": 1e-4,
                         "min_bound": 1e-4,
                         "max_bound": 6e-4,
                         "function": model_list[0].set_pd0,
                         "scaling": 1,  # 1000
                     },
-                    "pdt_BIC_long": {
+                    "pdt_BIClong": {
                         "initial_guess": 1e-4,
                         "min_bound": 1e-4,
                         "max_bound": 6e-4,
                         "function": model_list[0].set_pdt,
                         "scaling": 1,  # 1000
                     },
-                    "tau1_rest_BIC_brevis": {
+                    "tau1_rest_BICshort": {
                         "initial_guess": 0.5,
                         "min_bound": 0.0001,
                         "max_bound": 1,
                         "function": model_list[1].set_tau1_rest,
                         "scaling": 1,  # 10000
                     },
-                    "tau2_BIC_brevis": {
+                    "tau2_BICshort": {
                         "initial_guess": 0.5,
                         "min_bound": 0.0001,
                         "max_bound": 1,
                         "function": model_list[1].set_tau2,
                         "scaling": 1,  # 10000
                     },
-                    "km_rest_BIC_brevis": {
+                    "km_rest_BICshort": {
                         "initial_guess": 0.5,
                         "min_bound": 0.001,
                         "max_bound": 1,
                         "function": model_list[1].set_km_rest,
                         "scaling": 1,  # 10000
                     },
-                    "a_scale_BIC_brevis": {
+                    "a_scale_BICshort": {
                         "initial_guess": 5000,
                         "min_bound": 1,
                         "max_bound": 10000,
                         "function": model_list[1].set_a_scale,
                         "scaling": 1,
                     },
-                    "pd0_BIC_brevis": {
+                    "pd0_BICshort": {
                         "initial_guess": 1e-4,
                         "min_bound": 1e-4,
                         "max_bound": 6e-4,
                         "function": model_list[1].set_pd0,
                         "scaling": 1,  # 1000
                     },
-                    "pdt_BIC_brevis": {
+                    "pdt_BICshort": {
                         "initial_guess": 1e-4,
                         "min_bound": 1e-4,
                         "max_bound": 6e-4,
