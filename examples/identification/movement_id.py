@@ -51,7 +51,6 @@ def prepare_ocp_simulation(model: FesMskModel, final_time: float, msk_info: dict
     )
     objective_functions.add(ObjectiveFcn.Mayer.MINIMIZE_STATE, target=120, weight=5, node=Node.MID, quadratic=True, key='q')
 
-
     model = OcpFesMsk.update_model(model, parameters=ParameterList(use_sx=False), external_force_set=None)
 
     return OptimalControlProgram(
@@ -79,11 +78,18 @@ def simulate_data(model: FesMskModel, msk_info: dict, final_time: float):
     last_pulse_width_BIClong = sol.decision_controls(to_merge=SolutionMerge.NODES)["last_pulse_width_BIClong"][0]
     #last_pulse_width_BICshort = sol.decision_controls(to_merge=SolutionMerge.NODES)["last_pulse_width_BICshort"][0]
 
+    noise = np.random.normal(0, 0.01, len(Q[0]))
+    noisy_q = Q[0] + noise
+    plt.plot(time, Q[0], color="blue", label="Simulated q")
+    plt.plot(time, noisy_q, color="red", label="Noisy q")
+    plt.legend()
+    plt.show()
     data = {
         "time": time,
         "q": Q[0],
-        #"last_pulse_width_BICshort": last_pulse_width_BICshort,
+        # "last_pulse_width_BICshort": last_pulse_width_BICshort,
         "last_pulse_width_BIClong": last_pulse_width_BIClong,
+        "noisy_q": noisy_q,
     }
     return data
 
@@ -202,12 +208,12 @@ def main(plot=True):
     n_stim = 33
     stim_time = list(np.linspace(0, 1, n_stim + 1)[:-1])
     model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
-    #model_BIClong.a_scale = 5000
-    #model_BIClong.tau1_rest = 0.07
-    #model_BIClong.tau2 = 0.002
-    #model_BIClong.km_rest = 0.200
-    #model_BIClong.pd0 = 0.000200
-    #model_BIClong.pdt = 0.000250
+    # model_BIClong.a_scale = 4210
+    # model_BIClong.tau1_rest = 0.054
+    # model_BIClong.tau2 = 0.001
+    # model_BIClong.km_rest = 0.159
+    # model_BIClong.pd0 = 0.000118
+    # model_BIClong.pdt = 0.000090
     #model_BICshort = DingModelPulseWidthFrequency(muscle_name="BICshort", sum_stim_truncation=10)
     #model_BICshort.a_scale = 4800
     #model_BICshort.tau1_rest = 0.05
@@ -235,7 +241,7 @@ def main(plot=True):
     }
 
     #sim_data = simulate_data(model, msk_info, final_time)
-    sim_data = read_pkl("simulation_data.pkl")
+    sim_data = read_pkl("simulation_data/simulation_data_default_noisy_0.01.pkl")
     pulse_width_values_BIClong = sim_data["last_pulse_width_BIClong"]
     #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
     pulse_width_values = {
@@ -255,7 +261,7 @@ def main(plot=True):
             "pd0",
             "pdt",
         ],
-        q_target=sim_data["q"],
+        q_target=sim_data["noisy_q"],
     )
 
     ocp.add_plot_penalty(CostType.ALL)
@@ -276,7 +282,7 @@ def main(plot=True):
         ax.set_ylabel("q (radian)")
 
         ax.plot(sol_time, sol_Q, label="Identified q")
-        ax.plot(sim_data["time"], sim_data["q"], label="Simulated q")
+        ax.plot(sim_data["time"], sim_data["noisy_q"], label="Simulated q")
 
         ax.legend()
         plt.show()
@@ -286,3 +292,35 @@ def main(plot=True):
 
 if __name__ == "__main__":
     main()
+    """final_time = 1.6
+    n_stim = 33
+    stim_time = list(np.linspace(0, 1, n_stim + 1)[:-1])
+    model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
+
+    model = FesMskModel(
+        name=None,
+        biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
+        muscles_model=[model_BIClong],
+        stim_time=stim_time,
+        activate_force_length_relationship=True,
+        activate_force_velocity_relationship=True,
+        activate_passive_force_relationship=True,
+        activate_residual_torque=False,
+        external_force_set=None,  # External forces will be added later
+    )
+
+    msk_info = {
+        "with_residual_torque": False,
+        "bound_type": "start_end",
+        "bound_data": [[20], [20]],  # end à 20
+    }
+
+    sim_data = simulate_data(model, msk_info, final_time)
+    noisy_q = sim_data["noisy_q"]
+    q = sim_data["q"]
+    time = sim_data["time"]
+    plt.plot(time, q, color="blue", label="Simulated q")
+    plt.plot(time, noisy_q, color="red", label="Noisy q")
+    plt.legend()
+    plt.show()
+    save_in_pkl(sim_data, "simulation_data_default_noisy_0.01.pkl")"""
