@@ -40,8 +40,9 @@ class C3DToQ:
             c3d = Markers.from_c3d(path)
             self.markers_name = list(c3d.channel.data)
             self.data = c3d.data
+            self.time = c3d.time.data
             lst_index = self.set_index(self.markers_name)
-            # self.data = self.reindex_2d_list(self.data, lst_index)
+            #self.data = self.reindex_3d_list(self.data, lst_index)
             self.data_dict = {}
             for i, marker in enumerate(self.markers_index.keys()):
                 self.data_dict[marker] = self.data[:3, i, :]
@@ -85,9 +86,9 @@ class C3DToQ:
         return lst_index
 
     @staticmethod
-    def reindex_2d_list(data, new_indices):  # TODO : reindex_3D_list
+    def reindex_3d_list(data, new_indices, main_axis=1):
         """
-        This function reindex a 2D list based on the new index list
+        This function reindex a 3D list based on the new index list
         Parameters
         ----------
         data: array
@@ -103,8 +104,11 @@ class C3DToQ:
         if max(new_indices) >= len(data) or min(new_indices) < 0:
             raise ValueError("Invalid new_indices list. Out of bounds.")
 
-        # Create a new 2D list with re-ordered elements
-        new_data = [[data[i][j] for j in range(len(data[i]))] for i in new_indices]
+        # Create a new 3D list with re-ordered elements
+        if main_axis == 1:
+            new_data = [[data[i][j] for j in range(len(data[i]))] for i in new_indices]
+        else:
+            raise ValueError("main_axis must be 1.")
 
         return new_data
 
@@ -204,11 +208,16 @@ class C3DToQ:
         Q_rad = self._get_q()
         return np.rad2deg(Q_rad)
 
+    def get_time(self):
+        return self.time
+
 
 if __name__ == "__main__":
-    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Gap_interpol\\Kevin_mouv_50hz_250-300-350-400-450us_20mA_1s_1sr.c3d"
+    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d"
     c3d_to_q = C3DToQ(c3d_path)
-    angle = c3d_to_q.Q_deg
-    plt.plot(angle)
+    #Q_deg = c3d_to_q.get_q_deg()
+    Q_rad = c3d_to_q.get_q_rad()
+    time = c3d_to_q.get_time()
+    plt.plot(time, Q_rad)
     plt.show()
     # "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d"

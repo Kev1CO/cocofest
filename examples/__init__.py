@@ -2,3 +2,4 @@ from .data_process.c3d_to_muscle_force import C3dToMuscleForce
 from .data_process.c3d_to_pickle_data import C3dToPickleData
 from .data_process.transfer_force_from_pickle import TransferForceFromPickle
 from .data_process.muscle_force_from_pickle import MuscleForceFromPickle
+from .data_process.c3d_to_q import C3DToQ
