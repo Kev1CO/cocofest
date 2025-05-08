@@ -233,7 +233,8 @@ def main(plot=True):
         "bound_data": [[20], [20]],
     }
 
-    sim_data = simulate_data(model, msk_info, final_time)
+    #sim_data = simulate_data(model, msk_info, final_time)
+    sim_data = read_pkl("simulation_data/simulation_data_multibody_default.pkl")
     pulse_width_values_BIClong = sim_data["last_pulse_width_BIClong"]
     pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
     pulse_width_values = {
