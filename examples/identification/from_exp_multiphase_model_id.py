@@ -31,34 +31,34 @@ from cocofest import (
 from examples.data_process.c3d_to_q import C3DToQ
 
 
-def set_tau1_rest_all_model(models):
+def set_tau1_rest_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_tau1_rest
+        model.set_tau1_rest(model=model, tau1_rest=value)
 
 
-def set_tau2_all_model(models):
+def set_tau2_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_tau2
+        model.set_tau2(model=model, tau2=value)
 
 
-def set_km_rest_all_model(models):
+def set_km_rest_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_km_rest
+        model.set_km_rest(model=model, km_rest=value)
 
 
-def set_a_scale_all_model(models):
+def set_a_scale_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_a_scale
+        model.set_a_scale(model=model, a_scale=value)
 
 
-def set_pd0_all_model(models):
+def set_pd0_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_pd0
+        model.set_pd0(model=model, pd0=value)
 
 
-def set_pdt_all_model(models):
+def set_pdt_all_model(models, value):
     for model in models:
-        model.muscles_dynamics_model[0].set_pdt
+        model.set_pdt(model=model, pdt=value)
 
 
 def set_parameters(parameters_to_identify: list, additional_key_settings: dict, n_phase: int, i, parameters, parameters_bounds, parameters_init):
@@ -155,10 +155,6 @@ def prepare_ocp(
     phase_transition = PhaseTransitionList()
     x_bounds = BoundsList()
     x_init = InitialGuessList()
-    constraints = ConstraintList()
-    parameters = ParameterList(use_sx=use_sx)
-    parameters_bounds = BoundsList()
-    parameters_init = InitialGuessList()
 
     for i in range(n_phase):
 
@@ -237,12 +233,12 @@ def prepare_ocp(
     ocp_fes_id = OcpFesId()
     additional_key_settings = ocp_fes_id.set_default_values(model=models[0].muscles_dynamics_model[0])
 
-    additional_key_settings["tau1_rest"]["function"] = lambda models, value: set_tau1_rest_all_model
-    additional_key_settings["tau2"]["function"] = lambda models, value: set_tau2_all_model
-    additional_key_settings["km_rest"]["function"] = lambda models, value: set_km_rest_all_model
-    additional_key_settings["a_scale"]["function"] = lambda models, value: set_a_scale_all_model
-    additional_key_settings["pd0"]["function"] = lambda models, value: set_pd0_all_model
-    additional_key_settings["pdt"]["function"] = lambda models, value: set_pdt_all_model
+    additional_key_settings["tau1_rest"]["function"] = lambda models, value: set_tau1_rest_all_model(models, value)
+    additional_key_settings["tau2"]["function"] = lambda models, value: set_tau2_all_model(models, value)
+    additional_key_settings["km_rest"]["function"] = lambda models, value: set_km_rest_all_model(models, value)
+    additional_key_settings["a_scale"]["function"] = lambda models, value: set_a_scale_all_model(models, value)
+    additional_key_settings["pd0"]["function"] = lambda models, value: set_pd0_all_model(models, value)
+    additional_key_settings["pdt"]["function"] = lambda models, value: set_pdt_all_model(models, value)
 
     parameters, parameters_bounds, parameters_init = ocp_fes_id.set_parameters(
         parameter_to_identify=key_parameter_to_identify,
@@ -251,8 +247,6 @@ def prepare_ocp(
     )
 
     # Update models with parameters
-    models[0] = OcpFesMsk.update_model(models[0], parameters=parameters, external_force_set=None)
-    models[1] = OcpFesMsk.update_model(models[1], parameters=parameters, external_force_set=None)
 
     for param_key in parameters:
         if parameters[param_key].function:
@@ -265,6 +259,15 @@ def prepare_ocp(
             parameters[param_key].function(
                 fes_models_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
             )
+
+    models[0].parameters = parameters.mx
+    models[1].parameters = parameters.mx
+
+
+
+
+    #models[0] = OcpFesMsk.update_model(models[0], parameters=parameters, external_force_set=None)
+    #models[1] = OcpFesMsk.update_model(models[1], parameters=parameters, external_force_set=None)
 
     return OptimalControlProgram(
         bio_model=models,
