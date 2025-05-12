@@ -49,7 +49,7 @@ class C3DToQ:
             self.data = c3d.data
             self.time = c3d.time.data
             lst_index = self.set_index(self.markers_name)
-            #self.data = self.reindex_3d_list(self.data, lst_index)
+            self.data = self.reindex_3d_list(self.data, lst_index)
             self.data_dict = {}
             for i, marker in enumerate(self.markers_index.keys()):
                 self.data_dict[marker] = self.data[:3, i, :]
@@ -116,12 +116,12 @@ class C3DToQ:
         Reindex data array
         """
         # Ensure the new_indices list is not out of bounds
-        if max(new_indices) >= len(data) or min(new_indices) < 0:
+        if max(new_indices) >= len(data[0]) or min(new_indices) < 0:
             raise ValueError("Invalid new_indices list. Out of bounds.")
 
         # Create a new 3D list with re-ordered elements
         if main_axis == 1:
-            new_data = [[data[i][j] for j in range(len(data[i]))] for i in new_indices]
+            new_data = [[data[i][j] for j in new_indices] for i in range(len(data))]
         else:
             raise ValueError("main_axis must be 1.")
 
