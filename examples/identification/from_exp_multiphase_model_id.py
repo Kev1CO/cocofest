@@ -260,7 +260,7 @@ def prepare_ocp(
                 fes_models_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
             )
 
-    models[0].parameters = parameters.mx
+    models[0].parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
     models[1].parameters = parameters.mx
 
 
