@@ -48,8 +48,8 @@ class C3DToQ:
             self.markers_name = list(c3d.channel.data)
             self.data = c3d.data
             self.time = c3d.time.data
-            lst_index = self.set_index(self.markers_name)
-            self.data = self.reindex_3d_list(self.data, lst_index)
+            lst_index = self._set_index(self.markers_name)
+            #self.data = self._reindex_3d_list(self.data, lst_index)
             self.data_dict = {}
             for i, marker in enumerate(self.markers_index.keys()):
                 self.data_dict[marker] = self.data[:3, i, :]
@@ -57,13 +57,12 @@ class C3DToQ:
     def load_analog(self):
         for path in self.c3d_path:
             analog = Analogs.from_c3d(path)
-            index = self.get_index("Electric Current.Channel_5", analog.channel.data)
+            index = self._get_index("Electric Current.Channel_5", analog.channel.data)
             self.data_stim = analog.data[index]
             self.time_stim = analog.time.data
 
-
     @staticmethod
-    def get_index(name, lst):
+    def _get_index(name, lst):
         """
         This function returns the index of the name in the list.
         Parameters
@@ -81,7 +80,7 @@ class C3DToQ:
                 indice = i
         return indice
 
-    def set_index(self, lst_markers):
+    def _set_index(self, lst_markers):
         """
         This function create a list of new index based on the default index dict
         Parameters
@@ -96,12 +95,12 @@ class C3DToQ:
         lst_index = []
         for i in range(len(self.markers_index.keys())):
             name = list(self.markers_index.keys())[i]
-            indice = self.get_index(name, lst_markers)
+            indice = self._get_index(name, lst_markers)
             lst_index.append(indice)
         return lst_index
 
     @staticmethod
-    def reindex_3d_list(data, new_indices, main_axis=1):
+    def _reindex_3d_list(data, new_indices):
         """
         This function reindex a 3D list based on the new index list
         Parameters
@@ -119,15 +118,11 @@ class C3DToQ:
         if max(new_indices) >= len(data[0]) or min(new_indices) < 0:
             raise ValueError("Invalid new_indices list. Out of bounds.")
 
-        # Create a new 3D list with re-ordered elements
-        if main_axis == 1:
-            new_data = [[data[i][j] for j in new_indices] for i in range(len(data))]
-        else:
-            raise ValueError("main_axis must be 1.")
+        new_data = [[data[i][j] for j in new_indices] for i in range(len(data))]
 
         return new_data
 
-    def get_wrist_position(self):
+    def _get_wrist_position(self):
         self.wirst_position = np.zeros_like(self.data_dict["rwra"])
         for i in range(len(self.data_dict["rwra"][0])):
             self.wirst_position[0, i] = (self.data_dict["rwrb"][0, i] + self.data_dict["rwra"][0, i]) / 2
@@ -137,12 +132,12 @@ class C3DToQ:
         return self.wirst_position
 
     @staticmethod
-    def get_segment_vector(start, end):
+    def _get_segment_vector(start, end):
 
         return np.array(end) - np.array(start)
 
     @staticmethod
-    def projection_vectors(u, v):
+    def _projection_vectors(u, v):
         u_proj = np.zeros_like(u)
         v_proj = np.zeros_like(v)
         e1 = np.zeros_like(u)
@@ -165,7 +160,7 @@ class C3DToQ:
         return u_proj, v_proj
 
     @staticmethod
-    def get_angle(u, v):
+    def _get_angle(u, v):
         """
         Calculate the angle between two vectors in radians.
         Parameters
@@ -289,12 +284,12 @@ class C3DToQ:
 
     def _get_q(self):
         self.load_c3d()
-        self.get_wrist_position()
-        self.forearm_position = self.get_segment_vector(start=self.data_dict["elbow_r"], end=self.wirst_position)
-        self.humerus_position = self.get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["should_r"])
-        self.forearm_position_proj, self.humerus_position_proj = self.projection_vectors(self.forearm_position,
+        self._get_wrist_position()
+        self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.wirst_position)
+        self.humerus_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["should_r"])
+        self.forearm_position_proj, self.humerus_position_proj = self._projection_vectors(self.forearm_position,
                                                                                          self.humerus_position)
-        self.elbow_angle_rad = self.get_angle(self.forearm_position_proj[:2], self.humerus_position_proj[:2])
+        self.elbow_angle_rad = self._get_angle(self.forearm_position_proj[:2], self.humerus_position_proj[:2])
         self.Q_rad = np.pi - self.elbow_angle_rad
 
         return self.Q_rad
@@ -324,7 +319,6 @@ class C3DToQ:
 if __name__ == "__main__":
     c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d"
     c3d_to_q = C3DToQ(c3d_path)
-    #Q_deg = c3d_to_q.get_q_deg()
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
     sliced_time, sliced_Q_rad = c3d_to_q.get_sliced_time_Q_rad()
