@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
 import heapq
 import pickle
 
@@ -9,7 +8,7 @@ from pyomeca import Analogs, Markers
 
 class C3DToQ:
     def __init__(self, c3d_path: str | list[str]):
-        self.markers_index = {"should_r": 0, "delt_r":1, "elbow_r":2, "rwra": 3, "rwrb": 4}
+        self.markers_index = {"should_r": 0, "delt_r":1, "elbow_r": 2, "rwra": 3, "rwrb": 4}
 
         if isinstance(c3d_path, str):
             self.c3d_path = [c3d_path]
@@ -30,6 +29,14 @@ class C3DToQ:
         self.elbow_angle_deg: np.ndarray
         self.Q_rad: np.ndarray
         self.Q_deg: np.ndarray
+        self.frequency_acquisition: int = 100  # Hz
+        self.frequency_acquisition_stim: int = 10000  # Hz
+        self.average_time_difference: float = 0.0
+        self.frequency_stimulation: int = 50  # Hz
+        self.data_stim: np.ndarray
+        self.time_stim: np.ndarray
+        self.time: np.ndarray
+        self.stimulation_time: list[float] = []
 
     def load_c3d(self):
         """
@@ -46,6 +53,14 @@ class C3DToQ:
             self.data_dict = {}
             for i, marker in enumerate(self.markers_index.keys()):
                 self.data_dict[marker] = self.data[:3, i, :]
+
+    def load_analog(self):
+        for path in self.c3d_path:
+            analog = Analogs.from_c3d(path)
+            index = self.get_index("Electric Current.Channel_5", analog.channel.data)
+            self.data_stim = analog.data[index]
+            self.time_stim = analog.time.data
+
 
     @staticmethod
     def get_index(name, lst):
@@ -186,6 +201,92 @@ class C3DToQ:
             with open(path, "wb") as file:
                 pickle.dump(data, file)
 
+    @staticmethod
+    def _get_stimulation(time, stimulation_signal, average_time_difference=None):
+        """
+        This function detects the stimulation time and returns the time and index of the stimulation
+        Parameters
+        ----------
+        time: array
+            The time data
+        stimulation_signal: array
+            The stimulation signal
+        average_time_difference: float
+            The average time difference to add to the stimulation time
+
+        Returns
+        -------
+        time_peaks: list
+            The time of the stimulation
+        peaks: list
+            The index of the stimulation
+        """
+        derivative = np.diff(stimulation_signal)
+
+        threshold_positive = np.mean(heapq.nlargest(200, stimulation_signal)) / 2
+        threshold_negative = np.mean(heapq.nsmallest(200, stimulation_signal)) / 2
+
+        positive = np.where(stimulation_signal > threshold_positive)[0]
+        negative = np.where(stimulation_signal < threshold_negative)[0]
+
+        if negative[0] < positive[0]:
+            derivative = -derivative
+
+        derivative_threshold = np.mean(heapq.nlargest(200, derivative)) / 2
+
+        above_threshold = np.where(derivative > derivative_threshold)[0]
+
+        peaks = [above_threshold[0]]
+        for index in above_threshold[1:]:
+            if index - peaks[-1] > 10:
+                peaks.append(index)
+        time_peaks = [time[peak] for peak in peaks]
+
+        if average_time_difference:
+            time_peaks = np.array(time_peaks) + average_time_difference
+            peaks = np.array(peaks) + int(average_time_difference * self.frequency_acquisition_stim)
+
+        if isinstance(time_peaks, np.ndarray):
+            time_peaks = time_peaks.tolist()
+        if isinstance(peaks, np.ndarray):
+            peaks = peaks.tolist()
+
+        return time_peaks, peaks
+
+    def slice_data(self, data):
+        self.load_analog()
+        self.stimulation_time, peaks_index = self._get_stimulation(self.time_stim, self.data_stim, self.average_time_difference)
+
+        sliced_time = []
+        sliced_data = []
+
+        temp_peaks_index = peaks_index
+        i = 0
+
+        delta = self.frequency_acquisition_stim / self.frequency_stimulation * 1.3
+
+        while len(temp_peaks_index) != 0 and i < len(peaks_index) - 1:
+            first = peaks_index[i]
+            while i + 1 < len(peaks_index) and peaks_index[i + 1] - peaks_index[i] < delta:
+                i += 1
+
+            if i + 1 >= len(peaks_index):
+                last = first + self.frequency_acquisition_stim * 2
+            else:
+                last = peaks_index[i + 1] - 1
+
+            first = int(first * self.frequency_acquisition / self.frequency_acquisition_stim)
+            last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
+
+            sliced_time.append(self.time[first:last])
+            sliced_data.append(data[first:last])
+
+            i += 1
+
+            temp_peaks_index = [peaks for peaks in temp_peaks_index if peaks > last]
+
+        return sliced_time, sliced_data
+
     def _get_q(self):
         self.load_c3d()
         self.get_wrist_position()
@@ -194,9 +295,7 @@ class C3DToQ:
         self.forearm_position_proj, self.humerus_position_proj = self.projection_vectors(self.forearm_position,
                                                                                          self.humerus_position)
         self.elbow_angle_rad = self.get_angle(self.forearm_position_proj[:2], self.humerus_position_proj[:2])
-        self.elbow_angle_deg = np.rad2deg(self.elbow_angle_rad)
         self.Q_rad = np.pi - self.elbow_angle_rad
-        self.Q_deg = np.rad2deg(self.Q_rad)
 
         return self.Q_rad
 
@@ -211,13 +310,27 @@ class C3DToQ:
     def get_time(self):
         return self.time
 
+    def get_sliced_time_Q_rad(self):
+        Q_rad = self._get_q()
+        sliced_time, sliced_data = self.slice_data(Q_rad)
+        return sliced_time, sliced_data
+
+    def get_sliced_time_Q_deg(self):
+        Q_deg = self.get_q_deg()
+        sliced_time, sliced_data = self.slice_data(Q_deg)
+        return sliced_time, sliced_data
+
 
 if __name__ == "__main__":
-    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d"
+    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d"
     c3d_to_q = C3DToQ(c3d_path)
     #Q_deg = c3d_to_q.get_q_deg()
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
-    plt.plot(time, Q_rad)
+    sliced_time, sliced_Q_rad = c3d_to_q.get_sliced_time_Q_rad()
+
+    plt.plot(time, Q_rad, color="black")
+    plt.scatter(c3d_to_q.stimulation_time, [0] * len(c3d_to_q.stimulation_time), color="red")
+    for i in range(len(sliced_time)):
+        plt.plot(sliced_time[i], sliced_Q_rad[i])
     plt.show()
-    # "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d"
