@@ -185,6 +185,8 @@ def prepare_ocp(
         q_x_bounds = models[i].bounds_from_ranges("q")
         q_x_bounds.min[0][0] = q_at_node[i][0]
         q_x_bounds.max[0][0] = q_at_node[i][0]
+        q_x_bounds.max[0][1] = np.deg2rad(180-44)  # Participant's joint limit
+        q_x_bounds.max[0][2] = np.deg2rad(180-44)  # Participant's joint limit
         qdot_x_bounds = models[i].bounds_from_ranges("qdot")
         if i == 0:
             qdot_x_bounds.min[0][0] = 0
@@ -263,12 +265,6 @@ def prepare_ocp(
     models[0].parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
     models[1].parameters = parameters.mx
 
-
-
-
-    #models[0] = OcpFesMsk.update_model(models[0], parameters=parameters, external_force_set=None)
-    #models[1] = OcpFesMsk.update_model(models[1], parameters=parameters, external_force_set=None)
-
     return OptimalControlProgram(
         bio_model=models,
         dynamics=dynamics,
@@ -291,66 +287,37 @@ def prepare_ocp(
 
 
 def main(plot=True):
-    final_time = (1.55, 1.70)
-    n_stim =(50, 50)
-    stim_time = []
+    final_time = []
     n_phase = 2
-    stim_time0 = list(np.linspace(0, 1, n_stim[0] + 1)[:-1])
-    stim_time1 = list(np.linspace(1.55, 2.55, n_stim[1] + 1)[:-1])
 
-    # Define model
-    model_BIClong0 = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
-    #model_BICshort = DingModelPulseWidthFrequency(muscle_name="BICshort", sum_stim_truncation=10)
+    # Get experimental data
+    converter = C3DToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
+    time, Q_rad, stim_time = converter.get_sliced_time_Q_rad()
 
-    model0 = FesMskModel(
-        name=None,
-        biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
-        muscles_model=[model_BIClong0],
-        stim_time=stim_time0,
-        activate_force_length_relationship=True,
-        activate_force_velocity_relationship=True,
-        activate_passive_force_relationship=True,
-        activate_residual_torque=False,
-        external_force_set=None,  # External forces will be added later
-    )
+    # Define MSK models
+    models = []
+    for i in range(n_phase):
+        model = FesMskModel(
+            name=None,
+            biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
+            muscles_model=[DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)],
+            stim_time=list(np.round(stim_time[i], 2)),
+            activate_force_length_relationship=True,
+            activate_force_velocity_relationship=True,
+            activate_passive_force_relationship=True,
+            activate_residual_torque=False,
+            external_force_set=None,  # External forces will be added later
+        )
+        models.append(model)
 
-    model_BIClong1 = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
-    model1 = FesMskModel(
-        name=None,
-        biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
-        muscles_model=[model_BIClong1],
-        stim_time=stim_time1,
-        activate_force_length_relationship=True,
-        activate_force_velocity_relationship=True,
-        activate_passive_force_relationship=True,
-        activate_residual_torque=False,
-        external_force_set=None
-    )  # External forces will be added later
+        final_time.append(time[i][-1])
 
-    model = [model0, model1]
+    Q_rad = Q_rad[:n_phase]
+    time = time[:n_phase]
 
-    # Get experimental Q_rad
-    converter = C3DToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d")
-    Q_rad = converter.get_q_rad()
-    Q_deg = converter.get_q_deg()
-    time = converter.get_time()
-
-    time0 = np.array(time[5:161]) - time[5]
-    time1 = np.array(time[204:377]) - (time[204] - time0[-1])
-    Q_rad0 = np.array(Q_rad[5:161])
-    Q_rad1 = np.array(Q_rad[204:377])
-    for i in range(len(Q_rad0)):
-        if Q_rad0[i] < 0:
-            Q_rad0[i] = 0
-    for i in range(len(Q_rad1)):
-        if Q_rad1[i] < 0:
-            Q_rad1[i] = 0
-    Q_rad = [Q_rad0, Q_rad1]
-    time = [time0, time1]
-
-    # plt.plot(time0, Q_rad0, color='blue')
-    # plt.plot(time1, Q_rad1, color='red')
-    # plt.show()
+    for i in range(len(Q_rad)):
+        plt.plot(time[i], Q_rad[i])
+    plt.show()
 
     pulse_width_values_BIClong0 = [0.00025] * 155
     pulse_width_values_BIClong1 = [0.0003] * 170
@@ -359,16 +326,12 @@ def main(plot=True):
         "last_pulse_width_BIClong": pulse_width_values_BIClong0,
         #"last_pulse_width_BICshort": pulse_width_values_BICshort,
     }
-    pulse_width_values1 = {"last_pulse_width_BIClong": pulse_width_values_BIClong1,}
+    pulse_width_values1 = {"last_pulse_width_BIClong": pulse_width_values_BIClong1}
 
     pulse_width_values = [pulse_width_values0, pulse_width_values1]
 
-    #plt.plot(time, Q_rad)
-    #plt.scatter(stim_time, [0]*len(stim_time), label="Stimulus", color="red")
-    #plt.show()
-
     ocp = prepare_ocp(
-        model,
+        models,
         final_time,
         pulse_width_values,
         key_parameter_to_identify=[
@@ -385,20 +348,22 @@ def main(plot=True):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))  #ocp.nlp[0.parameters -> un seul param ou list de param tau1 ? sinon ajouter _i
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
     sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():
         print(f"{key}: {value}")
 
-    sol_time0 = sol.decision_time(to_merge=SolutionMerge.NODES)[0]
-    sol_time1 = sol.decision_time(to_merge=SolutionMerge.NODES)[1]
-    sol_Q0 = sol.decision_states(to_merge=SolutionMerge.NODES)[0]["q"][0]
-    sol_Q1 = sol.decision_states(to_merge=SolutionMerge.NODES)[1]["q"][0]
+    sol_time_list = []
+    sol_Q_list = []
 
-    sol_time = np.concatenate((sol_time0, sol_time1))
-    sol_Q = np.concatenate((sol_Q0, sol_Q1))
+    for i in range(n_phase):
+        sol_time = sol.decision_time(to_merge=SolutionMerge.NODES)[i]
+        sol_Q = sol.decision_states(to_merge=SolutionMerge.NODES)[i]["q"][0]
+
+        sol_time_list.append(sol_time)
+        sol_Q_list.append(sol_Q)
 
     if plot:
         # Plot the simulation and identification results
@@ -407,17 +372,12 @@ def main(plot=True):
         ax.set_xlabel("time (s)")
         ax.set_ylabel("q (radian)")
 
-        ax.plot(sol_time, sol_Q, label="Identified q")
-        ax.plot(np.concatenate((time0, time1)), np.concatenate((Q_rad0, Q_rad1)), label="Experimental q")
-        #ax.plot(time, Q_rad, label="Experimental q")
-        #ax.scatter(stim_time, [0]*len(stim_time), label="Stimulus", color="red")
-
+        for i in range(n_phase):
+            ax.plot(sol_time_list[i], sol_Q_list[i], label="Identified q", color='red')
+            ax.plot(time[i], Q_rad[i], label="Experimental q ", color='blue')
+            ax.scatter(list(np.round(stim_time[i], 2)), [0]*len(stim_time[i]), label="Stimulus", color="green")
         ax.legend()
         plt.show()
-        # sol.graphs(show_bounds=True)
-        sol.animate()
-
-    print(sol_time)
 
 
 if __name__ == "__main__":
