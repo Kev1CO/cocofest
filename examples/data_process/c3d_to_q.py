@@ -250,10 +250,11 @@ class C3DToQ:
 
     def slice_data(self, data):
         self.load_analog()
-        self.stimulation_time, peaks_index = self._get_stimulation(self.time_stim, self.data_stim, self.average_time_difference)
+        stimulation_time, peaks_index = self._get_stimulation(self.time_stim, self.data_stim, self.average_time_difference)
 
         sliced_time = []
         sliced_data = []
+        sliced_stim_time = []
 
         temp_peaks_index = peaks_index
         i = 0
@@ -262,25 +263,33 @@ class C3DToQ:
 
         while len(temp_peaks_index) != 0 and i < len(peaks_index) - 1:
             first = peaks_index[i]
+            first_stim = i
             while i + 1 < len(peaks_index) and peaks_index[i + 1] - peaks_index[i] < delta:
                 i += 1
 
-            if i + 1 >= len(peaks_index):
-                last = first + self.frequency_acquisition_stim * 2
-            else:
-                last = peaks_index[i + 1] - 1
+            j = int(peaks_index[i] * self.frequency_acquisition / self.frequency_acquisition_stim) + 15
+
+            while data[j + 1] - data[j] < 0:
+                j += 1
+
+            last = j
+            #if i + 1 >= len(peaks_index):
+                #last = first + self.frequency_acquisition_stim * 2
+            #else:
+                #last = peaks_index[i + 1] - 1
 
             first = int(first * self.frequency_acquisition / self.frequency_acquisition_stim)
-            last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
+            #last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
 
             sliced_time.append(self.time[first:last])
             sliced_data.append(data[first:last])
+            sliced_stim_time.append(stimulation_time[first_stim:i])
 
             i += 1
 
             temp_peaks_index = [peaks for peaks in temp_peaks_index if peaks > last]
 
-        return sliced_time, sliced_data
+        return sliced_time, sliced_data, sliced_stim_time
 
     def _get_q(self):
         self.load_c3d()
@@ -307,13 +316,13 @@ class C3DToQ:
 
     def get_sliced_time_Q_rad(self):
         Q_rad = self._get_q()
-        sliced_time, sliced_data = self.slice_data(Q_rad)
-        return sliced_time, sliced_data
+        sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
+        return sliced_time, sliced_data, sliced_stim_time
 
     def get_sliced_time_Q_deg(self):
         Q_deg = self.get_q_deg()
-        sliced_time, sliced_data = self.slice_data(Q_deg)
-        return sliced_time, sliced_data
+        sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_deg)
+        return sliced_time, sliced_data, sliced_stim_time
 
 
 if __name__ == "__main__":
@@ -321,10 +330,11 @@ if __name__ == "__main__":
     c3d_to_q = C3DToQ(c3d_path)
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
-    sliced_time, sliced_Q_rad = c3d_to_q.get_sliced_time_Q_rad()
+    sliced_time, sliced_Q_rad, sliced_stim_time = c3d_to_q.get_sliced_time_Q_rad()
 
     plt.plot(time, Q_rad, color="black")
-    plt.scatter(c3d_to_q.stimulation_time, [0] * len(c3d_to_q.stimulation_time), color="red")
+    #plt.scatter(c3d_to_q.stimulation_time, [0] * len(c3d_to_q.stimulation_time), color="red")
     for i in range(len(sliced_time)):
         plt.plot(sliced_time[i], sliced_Q_rad[i])
+        plt.scatter(sliced_stim_time[i], [0] * len(sliced_stim_time[i]), color="red")
     plt.show()
