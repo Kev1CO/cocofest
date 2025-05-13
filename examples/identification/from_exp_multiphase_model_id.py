@@ -286,9 +286,8 @@ def prepare_ocp(
     )
 
 
-def main(plot=True):
+def main(plot=True, n_phase=2):
     final_time = []
-    n_phase = 2
 
     # Get experimental data
     converter = C3DToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
@@ -381,4 +380,4 @@ def main(plot=True):
 
 
 if __name__ == "__main__":
-    main()
+    main(n_phase=2)
