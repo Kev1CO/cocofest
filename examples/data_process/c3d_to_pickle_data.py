@@ -39,93 +39,60 @@ class C3dToPickleData:
         self.sliced_data = None
         self.avg_stim_time = None
 
-        # Conversion into list
-        c3d_path_list = [c3d_path] if isinstance(c3d_path, str) else c3d_path
+        self.c3d_path_list = [c3d_path] if isinstance(c3d_path, str) else c3d_path
 
-        saving_pickle_path_list = (
-            [saving_pickle_path]
-            if isinstance(saving_pickle_path, str)
-            else saving_pickle_path
-        )
-        if saving_pickle_path_list:
-            if len(saving_pickle_path_list) != 1 and len(
-                saving_pickle_path_list
-            ) != len(c3d_path_list):
-                raise ValueError(
-                    "The number of saving_pickle_path must be the same as the number of c3d_path."
-                    "If you entered only one path, the file name will be iterated."
-                )
+        if saving_pickle_path is None:
+            raise ValueError("Please provide one or several saving paths for the pickle files.")
 
-        for i in range(len(c3d_path_list)):
-            c3d_path = c3d_path_list[i]
-            if not isinstance(c3d_path, str):
-                raise TypeError("c3d_path must be a str or a list of str.")
-            raw_data = Analogs.from_c3d(c3d_path)
+        self.saving_pickle_path_list = [saving_pickle_path] if isinstance(saving_pickle_path,str) else saving_pickle_path
 
-            # Low pass filter parameters
-            order = kwargs["order"] if "order" in kwargs else 1
-            cutoff = kwargs["cutoff"] if "cutoff" in kwargs else 10
-            if not isinstance(order, int | None) or not isinstance(cutoff, int | None):
-                raise TypeError(
-                    "window_length and order must be either None or int type"
-                )
-            if type(order) != type(cutoff):
-                raise TypeError("window_length and order must be both None or int type")
-
-            time = raw_data.time.values.tolist()
-
-            # Filter data from c3d file
-            self.filtered_data = (
-                -np.array(
-                    raw_data.meca.low_pass(
-                        order=order, cutoff=cutoff, freq=raw_data.rate
-                    )
-                )
-                if order and cutoff
-                else raw_data
+        if len(self.saving_pickle_path_list) != 1 and len(self.saving_pickle_path_list) != len(self.c3d_path_list):
+            raise ValueError(
+                "The number of saving_pickle_path must be the same as the number of c3d_path."
+                "If you entered only one path, the file name will be iterated."
             )
 
-            # Reindex data
-            lst_index = self.set_index(raw_data)
-            raw_data_reindex = self.reindex_2d_list(raw_data.data, lst_index)
-            self.filtered_data = self.reindex_2d_list(self.filtered_data, lst_index)
+        self.avg_stim_time = self.get_avg_time_diff()
 
-            self.torque_ergometer = self.filtered_data[6]
+        self.rest_time = kwargs["rest_time"] if "rest_time" in kwargs else 1
+
+        self.frequency_acquisition = kwargs["frequency_acquisition"] if "frequency_acquisition" in kwargs else 10000
+
+        self.frequency_stimulation = kwargs["frequency_stimulation"] if "frequency_stimulation" in kwargs else 50
+
+        self.calibration_matrix_path = calibration_matrix_path
+
+        self.already_calibrated = kwargs["already_calibrated"] if "already_calibrated" in kwargs else False
+
+        self.order = kwargs["order"] if "order" in kwargs else 1
+        self.cutoff = kwargs["cutoff"] if "cutoff" in kwargs else 10
+        if not isinstance(self.order, int | None) or not isinstance(self.cutoff, int | None):
+            raise TypeError("window_length and order must be either None or int type")
+
+        if type(self.order) != type(self.cutoff):
+            raise TypeError("window_length and order must be both None or int type")
+
+        for i in range(len(self.c3d_path_list)):
+
+            # Low pass filter parameters
+
+            # Reindex data
+
 
             # Get force from voltage data
-            if calibration_matrix_path:
-                self.calibration_matrix = self.read_text_file_to_matrix(calibration_matrix_path)
-                self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
-                non_filtered_force = self.calibration_matrix @ raw_data_reindex[:6]
 
-            else:
-                if "already_calibrated" in kwargs:
-                    if kwargs["already_calibrated"] is True:
-                        self.filtered_6d_force = self.filtered_data[:6]
-                    else:
-                        raise ValueError("already_calibrated must be either True or False")
 
-                else:
-                    raise ValueError(
-                        "Please specify if the data is already calibrated or not with already_calibrated input."
-                        "If not, please provide a calibration matrix path"
-                    )
 
-            self.filtered_6d_force = self.set_zero_level(self.filtered_6d_force, average_on=[0, 20000])
-            non_filtered_force = self.set_zero_level(non_filtered_force, average_on=[0, 20000])
-            self.stim_data = self.set_zero_level(raw_data_reindex[-1], average_on=[0, 20000])
-            self.torque_ergometer = self.set_zero_level(self.torque_ergometer, average_on=[0, 20000])
-            self.filtered_data = self.set_zero_level(self.filtered_data, average_on=[0, 20000])
 
             # plt.plot(time, -self.filtered_data[4], label='my', color='orange')
             # plt.plot(time, self.torque_ergometer, label='ergometer', color='red')
             # plt.legend()
             # plt.show()
 
-            self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(self.filtered_data[4])
 
-            plt.plot(time, -self.filtered_6d_force[4], label='my', color='orange')
-            plt.plot(time, self.torque_ergometer, label='ergometer', color='red')
+
+            plt.plot(self.time, -self.filtered_6d_force[4], label='my', color='orange')
+            plt.plot(self.time, self.torque_ergometer, label='ergometer', color='red')
             plt.legend()
             #plt.show()
 
@@ -135,27 +102,8 @@ class C3dToPickleData:
             # plt.show()
 
             if for_id:
-                self.avg_stim_time = self.get_avg_time_diff()
 
-                self.rest_time = kwargs["rest_time"] if "rest_time" in kwargs else 1
 
-                self.frequency_acquisition = (
-                    kwargs["frequency_acquisition"]
-                    if "frequency_acquisition" in kwargs
-                    else 10000
-                )
-                self.frequency_stimulation = (
-                    kwargs["frequency_stimulation"]
-                    if "frequency_stimulation" in kwargs
-                    else 50
-                )
-
-                # Detect stimulation time
-                stimulation_time, peaks = self.get_stimulation(
-                    time=time,
-                    stimulation_signal=self.stim_data,
-                    average_time_difference=self.avg_stim_time,
-                )
 
                 # stim = []
                 # for i in stimulation_time:
@@ -165,16 +113,6 @@ class C3dToPickleData:
                 # plt.legend()
                 # plt.show()
 
-                #Add ergometer torque to data
-                if isinstance(self.filtered_6d_force, list):
-                    self.filtered_6d_force += self.torque_ergometer
-                else:
-                    self.filtered_6d_force = np.concatenate((self.filtered_6d_force, np.array(self.torque_ergometer).reshape(1, -1)))
-
-                # Slice the data from 6D file
-                self.sliced_time, self.sliced_data = self.slice_data(
-                    time=time, data=self.filtered_6d_force, stimulation_index=peaks
-                )
 
                 # force_stim = []
                 # for j in stimulation_time:
@@ -212,56 +150,6 @@ class C3dToPickleData:
                     )
                 plt.show()
 
-                # Save data as dictionary in pickle file
-                if saving_pickle_path_list:
-                    if len(saving_pickle_path_list) == 1:
-                        if saving_pickle_path_list[:-4] == ".pkl":
-                            save_pickle_path = (
-                                saving_pickle_path_list[:-4] + "_" + str(i) + ".pkl"
-                            )
-                        else:
-                            save_pickle_path = (
-                                saving_pickle_path_list[0] + "_" + str(i) + ".pkl"
-                            )
-                    else:
-                        save_pickle_path = saving_pickle_path_list[i]
-
-                    dictionary = {
-                        "time": self.sliced_time,
-                        "x": self.sliced_data[0],
-                        "y": self.sliced_data[1],
-                        "z": self.sliced_data[2],
-                        "mx": self.sliced_data[3],
-                        "my": self.sliced_data[4],
-                        "mz": self.sliced_data[5],
-                        "torque_ergometer": self.sliced_data[6],
-                        "stim_time": stimulation_time,
-                    }
-                    with open(save_pickle_path, "wb") as file:
-                        pickle.dump(dictionary, file)
-            else:
-                if saving_pickle_path_list[0].endswith(".pkl"):
-                    save_pickle_path = (
-                        saving_pickle_path_list[:-4] + "_" + str(i) + ".pkl"
-                    )
-                else:
-                    save_pickle_path = (
-                        saving_pickle_path_list[0] + "_" + str(i) + ".pkl"
-                    )
-
-                dictionary = {
-                    "time": time,
-                    "x": self.filtered_6d_force[0],
-                    "y": self.filtered_6d_force[1],
-                    "z": self.filtered_6d_force[2],
-                    "mx": self.filtered_6d_force[3],
-                    "my": self.filtered_6d_force[4],
-                    "mz": self.filtered_6d_force[5],
-                    "torque_ergometer": self.filtered_6d_force[6],
-                    "stim_time": raw_data[6],
-                }
-                with open(save_pickle_path, "wb") as file:
-                    pickle.dump(dictionary, file)
 
     @staticmethod
     def read_text_file_to_matrix(file_path):
@@ -428,10 +316,7 @@ class C3dToPickleData:
 
         while len(temp_stimulation_index) != 0 and i < len(stimulation_index) - 1:
             first = stimulation_index[i]
-            while (
-                i + 1 < len(stimulation_index)
-                and stimulation_index[i + 1] - stimulation_index[i] < delta
-            ):
+            while i + 1 < len(stimulation_index) and stimulation_index[i + 1] - stimulation_index[i] < delta:
                 i += 1
 
             if i + 1 >= len(stimulation_index):
@@ -631,6 +516,84 @@ class C3dToPickleData:
                 )
 
             return avg_time_diff
+
+    def save_in_pkl(self, saving_pickle_path):
+        dictionary = {
+            "time": self.sliced_time,
+            "x": self.sliced_data[0],
+            "y": self.sliced_data[1],
+            "z": self.sliced_data[2],
+            "mx": self.sliced_data[3],
+            "my": self.sliced_data[4],
+            "mz": self.sliced_data[5],
+            "torque_ergometer": self.sliced_data[6],
+            "stim_time": self.stimulation_time,
+        }
+        with open(saving_pickle_path, "wb") as file:
+            pickle.dump(dictionary, file)
+
+    def calibration(self):
+        self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(
+            self.filtered_data[4])
+
+        if self.calibration_matrix_path is None and self.already_calibrated is False:
+            raise ValueError("Please provide a calibration matrix path.")
+        elif self.calibration_matrix_path is None and self.already_calibrated is True:
+            self.filtered_6d_force = self.filtered_data[:6]
+        else:
+            self.calibration_matrix = self.read_text_file_to_matrix(self.calibration_matrix_path)
+            self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
+
+    def load_c3d(self, c3d_path):
+        if not isinstance(c3d_path, str):
+            raise TypeError("c3d_path must be a str or a list of str.")
+        self.raw_data = Analogs.from_c3d(c3d_path)
+
+    def get_data_at_handle(self):
+        for i in range(len(self.c3d_path_list)):
+            # Getting data from c3d file
+            c3d_path = self.c3d_path_list[i]
+            self.load_c3d(c3d_path)
+
+            self.time = self.raw_data.time.values.tolist()
+            # Filtering data
+            self.filtered_data = -np.array(self.raw_data.meca.low_pass(order=self.order, cutoff=self.cutoff,
+                                                              freq=self.raw_data.rate)) if self.order and self.cutoff else self.raw_data
+            # Calibrating data
+            self.calibration()
+
+            # Reindexing raw_data
+            lst_index = self.set_index(self.raw_data)
+            raw_data_reindex = self.reindex_2d_list(self.raw_data.data, lst_index)
+            self.filtered_data = self.reindex_2d_list(self.filtered_data, lst_index)
+
+            self.torque_ergometer = self.filtered_data[6]
+
+            # Setting zero level
+            self.filtered_6d_force = self.set_zero_level(self.filtered_6d_force, average_on=[0, 20000])
+            self.stim_data = self.set_zero_level(raw_data_reindex[-1], average_on=[0, 20000])
+            self.torque_ergometer = self.set_zero_level(self.torque_ergometer, average_on=[0, 20000])
+
+            # Detect stimulation time
+            self.stimulation_time, peaks = self.get_stimulation(
+                time=self.time,
+                stimulation_signal=self.stim_data,
+                average_time_difference=self.avg_stim_time,
+            )
+            # Add ergometer torque to data
+            if isinstance(self.filtered_6d_force, list):
+                self.filtered_6d_force += self.torque_ergometer
+            else:
+                self.filtered_6d_force = np.concatenate(
+                    (self.filtered_6d_force, np.array(self.torque_ergometer).reshape(1, -1)))
+
+            # Slice the data from 6D file
+            self.sliced_time, self.sliced_data = self.slice_data(
+                time=self.time, data=self.filtered_6d_force, stimulation_index=peaks
+            )
+
+            # Save the data in pickle file
+            self.save_in_pkl(self.saving_pickle_path_list[i])
 
 
 if __name__ == "__main__":
