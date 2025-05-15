@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 import heapq
 import pickle
-from itertools import chain
 
 from pyomeca import Analogs
 
@@ -45,7 +44,7 @@ class C3dToForce:
         self.sliced_data = None
         self.avg_stim_time = None
         self.dictionary = {}
-        
+
         if c3d_path is None:
             raise ValueError("Please provide a c3d paths.")
 
@@ -91,6 +90,7 @@ class C3dToForce:
         self.muscle_name = muscle_name
         self.muscle_moment_arm = None
         self.muscle_force_vector = None
+        self.muscle_force_vector_list = []
         self.saved_dictionary = {}
 
         # Load the model
@@ -487,8 +487,8 @@ class C3dToForce:
             pickle.dump(data, file)
 
     def _calibration(self):
-        self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(
-            self.filtered_data[4])
+        #self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(
+            #self.filtered_data[4])
 
         if self.calibration_matrix_path is None and self.already_calibrated is False:
             raise ValueError("Please provide a calibration matrix path.")
@@ -512,15 +512,15 @@ class C3dToForce:
         # Filtering data
         self.filtered_data = -np.array(self.raw_data.meca.low_pass(order=self.order, cutoff=self.cutoff,
                                                           freq=self.raw_data.rate)) if self.order and self.cutoff else self.raw_data
-        # Calibrating data
-        self._calibration()
-
         # Reindexing raw_data
         lst_index = self.set_index(self.raw_data)
         raw_data_reindex = self.reindex_2d_list(self.raw_data.data, lst_index)
         self.filtered_data = self.reindex_2d_list(self.filtered_data, lst_index)
 
         self.torque_ergometer = self.filtered_data[6]
+
+        # Calibrating data
+        self._calibration()
 
         # Setting zero level
         self.filtered_6d_force = self.set_zero_level(self.filtered_6d_force, average_on=[0, 20000])
@@ -545,12 +545,16 @@ class C3dToForce:
             time=self.time, data=self.filtered_6d_force, stimulation_index=peaks
         )
 
+        #for j in range(len(self.sliced_time)):
+        #    plt.plot(self.sliced_time[j], self.sliced_data[0][j])
+        #plt.show()
+
         # Setting to zero each slice
         self.set_to_zero_slice()
 
-        for j in range(len(self.sliced_time)):
-            plt.plot(self.sliced_time[j], self.sliced_data[0][j])
-        plt.show()
+        #for j in range(len(self.sliced_time)):
+        #    plt.plot(self.sliced_time[j], self.sliced_data[0][j])
+        #plt.show()
 
         self.dictionary = {
             "time": self.sliced_time,
@@ -564,7 +568,6 @@ class C3dToForce:
             "stim_time": self.stimulation_time,
         }
 
-        return self.dictionary
 
     def load_model(self, elbow_angle: int | float):
         """
@@ -668,33 +671,47 @@ class C3dToForce:
             muscle_force = tau / self.muscle_moment_arm
             self.muscle_force_vector.append(muscle_force)
 
-    def get_force(self, save: bool = False):
-        force_data = np.array([self.dictionary["x"], self.dictionary["y"], self.dictionary["z"]])
-        torque_data = np.array([self.dictionary["mx"], self.dictionary["my"], self.dictionary["mz"]])
-        torque_ergo_data = np.array([self.dictionary["torque_ergometer"]])
+    def get_force(self, save: bool = False, plot: bool = True):
+        #torque_ergo_data = np.array([self.dictionary["torque_ergometer"]])
+        for i in range(len(self.dictionary["x"])):
+            force_data = np.array([self.dictionary["x"][i], self.dictionary["y"][i], self.dictionary["z"][i]])
+            torque_data = np.array([self.dictionary["mx"][i], self.dictionary["my"][i], self.dictionary["mz"][i]])
+            local_force_data = self.local_sensor_to_local_hand(force_data)
+            local_torque_data = self.local_sensor_to_local_hand(torque_data)
+            self.local_data = np.concatenate((local_force_data, local_torque_data))
+            self.select_muscle_and_dof()
+            self.get_muscle_force(local_data=self.local_data)
 
-        local_force_data = self.local_sensor_to_local_hand(force_data)
-        local_torque_data = self.local_sensor_to_local_hand(torque_data)
-        self.local_data = np.concatenate((local_force_data, local_torque_data))
-        self.select_muscle_and_dof()
-        self.get_muscle_force(local_data=self.local_data)
+            self.muscle_force_vector = np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
+            self.muscle_force_vector_list.append(self.muscle_force_vector)
 
-        self.muscle_force_vector = np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
-
-        self.saved_dictionary = {"force": self.muscle_force_vector, "time": self.dictionary["time"], "stim_time": self.dictionary["stim_time"], "muscle_name": self.muscle_name, "dof_name": self.dof_name}
+        self.saved_dictionary = {"force": self.muscle_force_vector_list, "time": self.dictionary["time"], "stim_time": self.dictionary["stim_time"], "muscle_name": self.muscle_name, "dof_name": self.dof_name}
 
         if save:
             self.save_in_pkl(self.saved_dictionary, self.saving_pickle_path)
+
+        if plot:
+            for i in range(len(self.muscle_force_vector_list)):
+                plt.plot(self.dictionary["time"][i], self.muscle_force_vector_list[i])
+            plt.scatter(self.dictionary["stim_time"], [0] * len(self.dictionary["stim_time"]), color="red", label="Stimulation")
+            plt.show()
 
         return self.saved_dictionary
 
 
 if __name__ == "__main__":
-    C3dToForce(
+    force_converter = C3dToForce(
         c3d_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.c3d",
         calibration_matrix_path="matrix.txt",
         saving_pickle_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.pkl",
         frequency_acquisition=10000,
         frequency_stimulation=50,
         rest_time=1,
+        model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
+        elboww_angle=90,
+        muscle_name="BIC_long",
+        dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
     )
+    force_converter.get_data_at_handle()
+    dict = force_converter.get_force(save=False)
+    #print(dict)
