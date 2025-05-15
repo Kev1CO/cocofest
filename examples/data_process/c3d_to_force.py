@@ -271,7 +271,8 @@ class C3dToForce:
         mz = []
         torque_ergometer = []
 
-        sliced_time = []
+        self.sliced_time = []
+        self.sliced_stim_time = []
 
         temp_stimulation_index = stimulation_index
 
@@ -280,6 +281,7 @@ class C3dToForce:
 
         while len(temp_stimulation_index) != 0 and i < len(stimulation_index) - 1:
             first = stimulation_index[i]
+            first_stim = i
             while i + 1 < len(stimulation_index) and stimulation_index[i + 1] - stimulation_index[i] < delta:
                 i += 1
 
@@ -295,7 +297,8 @@ class C3dToForce:
             my.append(data[4][first:last].tolist())
             mz.append(data[5][first:last].tolist())
             torque_ergometer.append(data[6][first:last].tolist())
-            sliced_time.append(time[first:last])
+            self.sliced_time.append(time[first:last])
+            self.sliced_stim_time.append(self.stimulation_time[first_stim:i])
 
             i += 1
 
@@ -303,9 +306,7 @@ class C3dToForce:
                 peaks for peaks in temp_stimulation_index if peaks > last
             ]
 
-        sliced_data = [x, y, z, mx, my, mz, torque_ergometer]
-
-        return sliced_time, sliced_data
+        self.sliced_data = [x, y, z, mx, my, mz, torque_ergometer]
 
     def set_to_zero_slice(self):
         """
@@ -541,9 +542,7 @@ class C3dToForce:
                 (self.filtered_6d_force, np.array(self.torque_ergometer).reshape(1, -1)))
 
         # Slice the data from 6D file
-        self.sliced_time, self.sliced_data = self.slice_data(
-            time=self.time, data=self.filtered_6d_force, stimulation_index=peaks
-        )
+        self.slice_data(time=self.time, data=self.filtered_6d_force, stimulation_index=peaks)
 
         #for j in range(len(self.sliced_time)):
         #    plt.plot(self.sliced_time[j], self.sliced_data[0][j])
@@ -565,9 +564,8 @@ class C3dToForce:
             "my": self.sliced_data[4],
             "mz": self.sliced_data[5],
             "torque_ergometer": self.sliced_data[6],
-            "stim_time": self.stimulation_time,
+            "stim_time": self.sliced_stim_time,
         }
-
 
     def load_model(self, elbow_angle: int | float):
         """
@@ -672,7 +670,7 @@ class C3dToForce:
             self.muscle_force_vector.append(muscle_force)
 
     def get_force(self, save: bool = False, plot: bool = True):
-        #torque_ergo_data = np.array([self.dictionary["torque_ergometer"]])
+        self.get_data_at_handle()
         for i in range(len(self.dictionary["x"])):
             force_data = np.array([self.dictionary["x"][i], self.dictionary["y"][i], self.dictionary["z"][i]])
             torque_data = np.array([self.dictionary["mx"][i], self.dictionary["my"][i], self.dictionary["mz"][i]])
@@ -692,11 +690,10 @@ class C3dToForce:
 
         if plot:
             for i in range(len(self.muscle_force_vector_list)):
-                plt.plot(self.dictionary["time"][i], self.muscle_force_vector_list[i])
-            plt.scatter(self.dictionary["stim_time"], [0] * len(self.dictionary["stim_time"]), color="red", label="Stimulation")
+                plt.plot(self.dictionary["time"][i], self.muscle_force_vector_list[i], color="blue")
+                plt.scatter(self.dictionary["stim_time"][i], [0] * len(self.dictionary["stim_time"][i]), color="red", label="Stimulation")
+            plt.title('Muscle Force and Stimulation')
             plt.show()
-
-        return self.saved_dictionary
 
 
 if __name__ == "__main__":
@@ -708,10 +705,9 @@ if __name__ == "__main__":
         frequency_stimulation=50,
         rest_time=1,
         model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
-        elboww_angle=90,
+        elbow_angle=90,
         muscle_name="BIC_long",
         dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
     )
-    force_converter.get_data_at_handle()
-    dict = force_converter.get_force(save=False)
+    force_converter.get_force(save=False, plot=True)
     #print(dict)

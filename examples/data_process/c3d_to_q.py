@@ -6,9 +6,9 @@ import pickle
 from pyomeca import Analogs, Markers
 
 
-class C3DToQ:
+class C3dToQ:
     def __init__(self, c3d_path: str | list[str]):
-        self.markers_index = {"should_r": 0, "delt_r":1, "elbow_r": 2, "rwra": 3, "rwrb": 4}
+        self.markers_index = {"should_r": 0, "delt_r": 1, "elbow_r": 2, "rwra": 3, "rwrb": 4}
 
         if isinstance(c3d_path, str):
             self.c3d_path = [c3d_path]
@@ -329,25 +329,25 @@ class C3DToQ:
         Q_rad = self._get_q()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
         sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
-        return sliced_time, sliced_data, sliced_stim_time
+        dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
+        return dictionary
 
     def get_sliced_time_Q_deg(self):
         Q_deg = self.get_q_deg()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_deg)
         sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
-        return sliced_time, sliced_data, sliced_stim_time
+        dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
+        return dictionary
 
 
 if __name__ == "__main__":
     c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d"
-    c3d_to_q = C3DToQ(c3d_path)
+    c3d_to_q = C3dToQ(c3d_path)
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
-    sliced_time, sliced_Q_rad, sliced_stim_time = c3d_to_q.get_sliced_time_Q_rad()
+    dict = c3d_to_q.get_sliced_time_Q_rad()
 
-    #plt.plot(time, Q_rad, color="black")
-    #plt.scatter(c3d_to_q.stimulation_time, [0] * len(c3d_to_q.stimulation_time), color="red")
-    for i in range(len(sliced_time)):
-        plt.plot(sliced_time[i], sliced_Q_rad[i])
-        plt.scatter(sliced_stim_time[i], [0] * len(sliced_stim_time[i]), color="red")
+    for i in range(len(dict["q"])):
+        plt.plot(dict["time"][i], dict["q"][i])
+        plt.scatter(dict["stim_time"][i], [0] * len(dict["time"][i]), color="red")
     plt.show()
