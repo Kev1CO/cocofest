@@ -28,7 +28,7 @@ from cocofest import (
     CustomObjective, OcpFesIdMultibody, CustomConstraint,
 )
 
-from examples.data_process.c3d_to_q import C3DToQ
+from examples.data_process.c3d_to_q import C3dToQ
 
 
 def set_tau1_rest_all_model(models, value):
@@ -290,7 +290,7 @@ def main(plot=True, n_phase=2):
     final_time = []
 
     # Get experimental data
-    converter = C3DToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
+    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
     time, Q_rad, stim_time = converter.get_sliced_time_Q_rad()
 
     # Define MSK models

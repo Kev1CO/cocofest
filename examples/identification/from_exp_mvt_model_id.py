@@ -26,7 +26,7 @@ from cocofest import (
     CustomObjective, OcpFesIdMultibody,
 )
 
-from examples.data_process.c3d_to_q import C3DToQ
+from examples.data_process.c3d_to_q import C3dToQ
 
 
 def prepare_ocp(
@@ -136,9 +136,17 @@ def prepare_ocp(
 
 
 def main(plot=True):
-    final_time = 4
-    n_stim = 50
-    stim_time = list(np.linspace(0, 1, n_stim + 1)[:-1]) + list(np.linspace(2.04, 3.04, n_stim + 1)[:-1])
+    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
+    exp_data = converter.get_sliced_time_Q_rad()
+    time = exp_data["time"]
+    Q_rad = exp_data["q"]
+    stim_time = exp_data["stim_time"]
+    final_time = np.round(time[1][-1], 2)
+
+    stim_time = np.concatenate((stim_time[0], stim_time[1]))
+    Q_rad = np.concatenate((Q_rad[0], Q_rad[1]))
+    time = np.concatenate((time[0], time[1]))
+
     model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
     # model_BIClong.a_scale = 4210
     # model_BIClong.tau1_rest = 0.054
@@ -158,7 +166,7 @@ def main(plot=True):
         name=None,
         biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
         muscles_model=[model_BIClong],
-        stim_time=stim_time,
+        stim_time=list(np.round(stim_time, 2)),
         activate_force_length_relationship=True,
         activate_force_velocity_relationship=True,
         activate_passive_force_relationship=True,
@@ -166,27 +174,7 @@ def main(plot=True):
         external_force_set=None,  # External forces will be added later
     )
 
-    converter = C3DToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.04.25\\Florine_mouv_50hz_250-300-350-400-450us_15mA_1s_1sr.c3d")
-    Q_rad = converter.get_q_rad()
-    Q_deg = converter.get_q_deg()
-    time = converter.get_time()
-
-    msk_info = {
-        "with_residual_torque": False,
-        "bound_type": "start_end",
-        "bound_data": [[Q_deg[5]], [Q_deg[160]]],  # end à 20
-    }
-    time = np.array(time[5:377]) - time[5]
-    Q_rad1 = np.array(Q_rad[5:161]) - Q_rad[5]
-    Q_rad2 = np.array(Q_rad[161:377]) - Q_rad[205]
-    for i in range(len(Q_rad1)):
-        if Q_rad1[i] < 0:
-            Q_rad1[i] = 0
-    for i in range(len(Q_rad2)):
-        if Q_rad2[i] < 0:
-            Q_rad2[i] = 0
-    Q_rad = np.concatenate((Q_rad1, Q_rad2))
-    pulse_width_values_BIClong = [0.00025] * 100 + [0.0003] * 100
+    pulse_width_values_BIClong = [0.00025] * 194 + [0.0003] * 180
     #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
     pulse_width_values = {
         "last_pulse_width_BIClong": pulse_width_values_BIClong,
@@ -213,7 +201,7 @@ def main(plot=True):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=0, _tol=1e-12))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():

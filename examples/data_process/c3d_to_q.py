@@ -61,6 +61,9 @@ class C3dToQ:
             self.data_stim = analog.data[index]
             self.time_stim = analog.time.data
 
+            #plt.plot(self.time_stim, self.data_stim)
+            #plt.show()
+
     @staticmethod
     def _get_index(name, lst):
         """
@@ -341,7 +344,7 @@ class C3dToQ:
 
 
 if __name__ == "__main__":
-    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d"
+    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
     c3d_to_q = C3dToQ(c3d_path)
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
@@ -349,5 +352,7 @@ if __name__ == "__main__":
 
     for i in range(len(dict["q"])):
         plt.plot(dict["time"][i], dict["q"][i])
-        plt.scatter(dict["stim_time"][i], [0] * len(dict["time"][i]), color="red")
+        plt.scatter(dict["stim_time"][i], [0] * len(dict["stim_time"][i]), color="red")
     plt.show()
+    #"C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_21mA_doublet.c3d"
+    #"C:\Users\flori_4ro0b8\Documents\Stage_S2M\c3d_file\essais_mvt_16.05.25\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
