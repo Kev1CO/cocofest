@@ -29,6 +29,22 @@ from cocofest import (
 from examples.data_process.c3d_to_q import C3dToQ
 
 
+def slicing_data(q: list[list], time: list[list], stim_time: list[list]):
+    start = q[1][0]
+    end_index = 0
+    for i in range(100, len(q[0])):
+        if q[0][i] < start:
+            end = q[0][i]
+            end_time = time[0][i]
+            end_index = i
+            break
+    new_q = np.concatenate((q[0][:end_index], q[1][:]))
+    new_stim_time = np.concatenate((stim_time[0], stim_time[1] - time[1][0] + time[0][end_index]))
+    new_time = np.concatenate((time[0][:end_index], time[1][:] - time[1][0] + time[0][end_index]))
+    
+    return new_q, new_time, new_stim_time
+
+
 def prepare_ocp(
     model,
     final_time,
@@ -136,16 +152,28 @@ def prepare_ocp(
 
 
 def main(plot=True):
-    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
+    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_22mA.c3d")
     exp_data = converter.get_sliced_time_Q_rad()
     time = exp_data["time"]
     Q_rad = exp_data["q"]
     stim_time = exp_data["stim_time"]
     final_time = np.round(time[1][-1], 2)
 
-    stim_time = np.concatenate((stim_time[0], stim_time[1]))
-    Q_rad = np.concatenate((Q_rad[0], Q_rad[1]))
-    time = np.concatenate((time[0], time[1]))
+    #plt.plot(time[0], Q_rad[0], label="before slicing", color="green", alpha=0.5)
+    #plt.plot(time[1], Q_rad[1], color="green", alpha=0.5)
+    #plt.scatter(stim_time[0], [0]*len(stim_time[0]), label="Stimulus", color="purple", alpha=0.5)
+    #plt.scatter(stim_time[1], [0] * len(stim_time[1]), color="purple", alpha=0.5)
+
+    Q_rad, time, stim_time = slicing_data(Q_rad, time, stim_time)
+
+    #stim_time = np.concatenate((stim_time[0], stim_time[1]))
+    #Q_rad = np.concatenate((Q_rad[0], Q_rad[1]))
+    #time = np.concatenate((time[0], time[1]))
+
+    plt.plot(time, Q_rad, label="after slicing", color="blue", alpha=0.5)
+    plt.scatter(stim_time, [0]*len(stim_time), label="Stimulus", color="red", alpha=0.5)
+    plt.legend()
+    plt.show()
 
     model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
     # model_BIClong.a_scale = 4210
