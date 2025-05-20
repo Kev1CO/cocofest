@@ -135,7 +135,7 @@ def set_x_bounds(bio_models, i, x_init, x_bounds):
 def prepare_ocp(
     models,
     final_time: list,
-    pulse_width_values: dict,
+    pulse_width_values: list,
     key_parameter_to_identify,
     q_target,
     time,
@@ -143,7 +143,7 @@ def prepare_ocp(
     n_phase: int = 2,
 ):
 
-    n_shooting = ()
+    n_shooting = []
     q_at_node = []
     numerical_data_time_series = []
     stim_idx_at_node_list = []
@@ -159,7 +159,7 @@ def prepare_ocp(
     for i in range(n_phase):
 
         # Problem parameters
-        n_shooting += (models[i].muscles_dynamics_model[0].get_n_shooting(final_time[i]),)
+        n_shooting.append(models[i].muscles_dynamics_model[0].get_n_shooting(final_time[i]))
         phase_time = np.array(time[i]) - time[i][0]
         q_at_node.append(DataExtraction.force_at_node_in_ocp(phase_time, q_target[i], n_shooting[i], final_time[i]))
         numerical_data_time, stim_idx_at_node = models[i].muscles_dynamics_model[0].get_numerical_data_time_series(
@@ -198,7 +198,7 @@ def prepare_ocp(
         # Controls bounds and initial guess
         if isinstance(models[i].muscles_dynamics_model[0], DingModelPulseWidthFrequency):
             for muscle in models[i].muscles_dynamics_model:
-                control_bounds = pulse_width_values[i]["last_pulse_width_" + muscle.muscle_name]
+                control_bounds = [pulse_width_values[i]] * n_shooting[i]  #["last_pulse_width_" + muscle.muscle_name]
                 u_init.add(
                     key="last_pulse_width_" + muscle.muscle_name,
                     initial_guess=np.array([control_bounds]),
@@ -207,8 +207,8 @@ def prepare_ocp(
                 )
                 u_bounds.add(
                     "last_pulse_width_" + muscle.muscle_name,
-                    min_bound=np.array([control_bounds]),
-                    max_bound=np.array([control_bounds]),
+                    min_bound=np.array([control_bounds])-0.0001,
+                    max_bound=np.array([control_bounds])+0.0001,
                     interpolation=InterpolationType.EACH_FRAME,
                     phase=i,
                 )
@@ -309,30 +309,31 @@ def main(plot=True, n_phase=2):
         )
         models.append(model)
 
-        final_time.append(time[i][-1])
+        final_time.append(np.round(time[i][-1] - time[i][0], 2))
 
     Q_rad = Q_rad[:n_phase]
     time = time[:n_phase]
 
     for i in range(len(Q_rad)):
         plt.plot(time[i], Q_rad[i])
-    plt.show()
+    #plt.show()
 
-    pulse_width_values_BIClong0 = [0.00025] * 155
-    pulse_width_values_BIClong1 = [0.0003] * 170
+    #pulse_width_values_BIClong0 = [0.00025] * 155
+    #pulse_width_values_BIClong1 = [0.0003] * 170
     #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
-    pulse_width_values0 = {
-        "last_pulse_width_BIClong": pulse_width_values_BIClong0,
+    #pulse_width_values0 = {
+        #"last_pulse_width_BIClong": pulse_width_values_BIClong0,
         #"last_pulse_width_BICshort": pulse_width_values_BICshort,
-    }
-    pulse_width_values1 = {"last_pulse_width_BIClong": pulse_width_values_BIClong1}
+    #}
+    #pulse_width_values1 = {"last_pulse_width_BIClong": pulse_width_values_BIClong1}
 
-    pulse_width_values = [pulse_width_values0, pulse_width_values1]
+    #pulse_width_values = [pulse_width_values0, pulse_width_values1]
 
+    pulse_width_values_per_phase = [0.00025, 0.0003]
     ocp = prepare_ocp(
         models,
         final_time,
-        pulse_width_values,
+        pulse_width_values_per_phase,
         key_parameter_to_identify=[
             "tau1_rest",
             "tau2",
@@ -347,7 +348,7 @@ def main(plot=True, n_phase=2):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000)) #, _tol=1e-12))
     sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")

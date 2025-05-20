@@ -202,6 +202,7 @@ def main(plot=True):
 
     ocp.add_plot_penalty(CostType.ALL)
     sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
+    sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():
