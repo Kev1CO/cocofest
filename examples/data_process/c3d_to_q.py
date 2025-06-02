@@ -305,6 +305,15 @@ class C3dToQ:
 
         return sliced_time, sliced_stim_time
 
+    def forearm_length(self):
+        self.load_c3d()
+        self._get_wrist_position()
+        self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.wirst_position)
+        norm_forearm = []
+        for i in range(len(self.forearm_position[0])):
+            norm_forearm.append(np.linalg.norm(self.forearm_position[:, i]))
+        return np.mean(norm_forearm)
+
     def _get_q(self):
         self.load_c3d()
         self._get_wrist_position()
@@ -346,6 +355,8 @@ class C3dToQ:
 if __name__ == "__main__":
     c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
     c3d_to_q = C3dToQ(c3d_path)
+    length = c3d_to_q.forearm_length()
+    print(length)
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
     dict = c3d_to_q.get_sliced_time_Q_rad()
@@ -353,6 +364,6 @@ if __name__ == "__main__":
     for i in range(len(dict["q"])):
         plt.plot(dict["time"][i], dict["q"][i])
         plt.scatter(dict["stim_time"][i], [0] * len(dict["stim_time"][i]), color="red")
-    plt.show()
+    #plt.show()
     #"C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_21mA_doublet.c3d"
     #"C:\Users\flori_4ro0b8\Documents\Stage_S2M\c3d_file\essais_mvt_16.05.25\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
