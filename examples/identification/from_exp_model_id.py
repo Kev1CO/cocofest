@@ -13,22 +13,21 @@ from cocofest import (
     ModelMaker,
     OcpFesId, FES_plot,
 )
-
+import pickle
 from cocofest.identification.identification_method import DataExtraction
 
-from examples.data_process.c3d_to_muscle_force import C3dToMuscleForce
-from examples.data_process.muscle_force_from_pickle import MuscleForceFromPickle
+from examples.data_process.c3d_to_force import C3dToForce
 
 
 def set_time_to_zero(stim_time, time_list):
     first_stim = stim_time[0]
     if first_stim > time_list[0]:
-        raise ValueError("Time list should begin at the first stimulation")
+        pass
+        #raise ValueError("Time list should begin at the first stimulation")
     stim_time = list(np.array(stim_time) - first_stim)
     time_list = list(np.array(time_list) - first_stim)
 
     return stim_time, time_list
-
 
 def prepare_ocp(
     model,
@@ -40,11 +39,7 @@ def prepare_ocp(
 ):
     n_shooting = model.get_n_shooting(final_time)
 
-    # stim_time_1 = stim_time + [2 * stim_time[-1]-stim_time[-2]]
-
     force_at_node = DataExtraction.force_at_node_in_ocp(tracked_data["time"], tracked_data["force"], n_shooting, final_time)
-
-    #force_at_node = np.interp(stim_time, tracked_data["time"], tracked_data["force"]).tolist()
 
     numerical_data_time_series, stim_idx_at_node_list = model.get_numerical_data_time_series(n_shooting, final_time)
     dynamics = OcpFesId.declare_dynamics(model=model, numerical_data_timeseries=numerical_data_time_series)
@@ -98,27 +93,34 @@ def prepare_ocp(
     )
 
 
-def main(plot=True, pickle_path=None, muscle_name=None):
+def main(plot=True):
     # Parameters for simulation and identification
-    final_time = 4  #20
-    pulse_width_values = [0.0004] * 50  #500
+    final_time = 2
+    with open("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\seeds_pulse_width.pkl", "rb") as f:
+        pulse_width_values_list = pickle.load(f)
+    pulse_width = pulse_width_values_list[59][0]
+    pulse_width_values = [pulse_width] * 50
 
-    # c3d_converter = C3dToMuscleForce()
-    # norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
-    #     c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
-    # )
-    get_force = MuscleForceFromPickle(pickle_path=pickle_path, muscle_name=muscle_name)
-    time, muscle_force, stim_time = get_force.read_pkl_to_force()
-    stim_time, time = set_time_to_zero(stim_time[46:], time)
+    c3d_converter = C3dToForce(
+        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\Data\\P03\\p03_force_50Hz_59.c3d",
+        calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\matrix.txt",
+        saving_pickle_path="p03_force_50Hz_59.pkl",
+        frequency_acquisition=10000,
+        frequency_stimulation=50,
+        rest_time=1,
+    )
+    c3d_converter.get_data_at_handle()
+    data = c3d_converter.handle_dictionary
+    time = data["time"][0]
+    muscle_force = data["x"][0]
+    stim_time = data["stim_time"][0]
 
-    tracked_data = {"time": time[:12500], "force": muscle_force[:12500]}
+    stim_time, time = set_time_to_zero(stim_time, time)
 
-    last_stim = 0
-    while stim_time[last_stim] < tracked_data["time"][-1]:
-        last_stim += 1
-    new_stim_time = stim_time[:last_stim]
+    tracked_data = {"time": time, "force": muscle_force}
 
-    new_stim_time = list(np.linspace(0, 1, 50))
+    #new_stim_time = list(np.linspace(0, 1, 50))
+    new_stim_time = list(np.round(stim_time, 2))
     model = ModelMaker.create_model("ding2007", stim_time=new_stim_time, sum_stim_truncation=10)
 
     ocp = prepare_ocp(
@@ -152,4 +154,4 @@ def main(plot=True, pickle_path=None, muscle_name=None):
 
 
 if __name__ == "__main__":
-    main(plot=True, pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")
+    main(plot=True)
