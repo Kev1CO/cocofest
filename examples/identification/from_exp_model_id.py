@@ -96,14 +96,14 @@ def prepare_ocp(
 def main(plot=True):
     # Parameters for simulation and identification
     final_time = 2
-    with open("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\seeds_pulse_width.pkl", "rb") as f:
+    with open("../data_process/seeds_pulse_width.pkl", "rb") as f:  # "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\seeds_pulse_width.pkl"
         pulse_width_values_list = pickle.load(f)
     pulse_width = pulse_width_values_list[59][0]
     pulse_width_values = [pulse_width] * 50
 
     c3d_converter = C3dToForce(
         c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\Data\\P03\\p03_force_50Hz_59.c3d",
-        calibration_matrix_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\matrix.txt",
+        calibration_matrix_path="../data_process/matrix.txt",
         saving_pickle_path="p03_force_50Hz_59.pkl",
         frequency_acquisition=10000,
         frequency_stimulation=50,
@@ -119,7 +119,6 @@ def main(plot=True):
 
     tracked_data = {"time": time, "force": muscle_force}
 
-    #new_stim_time = list(np.linspace(0, 1, 50))
     new_stim_time = list(np.round(stim_time, 2))
     model = ModelMaker.create_model("ding2007", stim_time=new_stim_time, sum_stim_truncation=10)
 
