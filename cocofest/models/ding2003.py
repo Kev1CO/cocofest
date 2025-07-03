@@ -403,7 +403,20 @@ class DingModelFrequency(FesModel):
             self.previous_stim["time"].insert(0, -10000000)
         return self.previous_stim
 
-    def get_numerical_data_time_series(self, n_shooting, final_time, all_stim_time=None):
+    def get_numerical_data_time_series(self, n_shooting, final_time, all_stim_time=None, time_offset=0):
+        """
+
+        Parameters
+        ----------
+        n_shooting
+        final_time
+        all_stim_time
+        time_offset: float
+            starting time of the current phase (used for multiphase problem)
+        Returns
+        -------
+
+        """
         truncation = self.sum_stim_truncation
         # --- Set the previous stim time for the numerical data time series (mandatory to avoid nan values) --- #
         self.previous_stim = self._get_additional_previous_stim_time()
@@ -415,7 +428,7 @@ class DingModelFrequency(FesModel):
         dt = final_time / n_shooting
 
         # For each node (n_shooting+1 total), find the last index where stim_time <= node_time.
-        node_idx = [np.where(stim_time <= i * dt)[0][-1] for i in range(n_shooting + 1)]
+        node_idx = [np.where(stim_time <= time_offset + i * dt)[0][-1] for i in range(n_shooting + 1)]
 
         # For each node, extract the stim times up to that node, then keep only the last 'truncated' values.
         stim_time_list = [list(stim_time[: idx + 1][-truncation:]) for idx in node_idx]
