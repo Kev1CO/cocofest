@@ -4,7 +4,7 @@ This example demonstrates the way of identifying an experimental muscle force mo
 
 import matplotlib.pyplot as plt
 import numpy as np
-
+from pathlib import Path
 from bioptim import SolutionMerge, OdeSolver, OptimalControlProgram, ObjectiveFcn, Node, ControlType, ObjectiveList
 
 from cocofest import (
@@ -15,9 +15,8 @@ from cocofest import (
 )
 
 from cocofest.identification.identification_method import DataExtraction
+from examples.data_process.c3d_to_force import C3dToForce
 
-from examples.data_process.c3d_to_muscle_force import C3dToMuscleForce
-from examples.data_process.muscle_force_from_pickle import MuscleForceFromPickle
 
 
 def set_time_to_zero(stim_time, time_list):
@@ -107,26 +106,41 @@ def main(plot=True, pickle_path=None, muscle_name=None):
     # norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
     #     c3d_path=c3d_path, calibration_matrix_path=calibration_matrix_path, saving_pickle_path=saving_pickle_path
     # )
-    get_force = MuscleForceFromPickle(pickle_path=pickle_path, muscle_name=muscle_name)
-    time, muscle_force, stim_time = get_force.read_pkl_to_force()
-    stim_time, time = set_time_to_zero(stim_time[46:], time)
+    current_file_dir = Path(__file__).parent
+    converter = C3dToForce(
+        c3d_path=pickle_path,
+        calibration_matrix_path="/home/mickaelbegon/Documents/Stage_Florine/matrix.txt",
+        saving_pickle_path=f"{current_file_dir}/essai1_florine_force_biceps.pkl",
+        frequency_acquisition=10000,
+        frequency_stimulation=50,
+        rest_time=1,
+        model_path=f"{current_file_dir}/../model_msk/simplified_UL_Seth.bioMod",
+        elbow_angle=90,
+        muscle_name="BIC_long",
+        dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
+    )
+    converter.get_force(save=False, plot=False)
+    dict = converter.saved_dictionary
+    time = dict["time"][0]
+    stim_time = dict["stim_time"][0]
+    stim_time, time = set_time_to_zero(stim_time, time)
 
-    tracked_data = {"time": time[:12500], "force": muscle_force[:12500]}
+    tracked_data = {"time": time, "force": force_biclong} #muscle_force[:12500]
 
-    last_stim = 0
-    while stim_time[last_stim] < tracked_data["time"][-1]:
-        last_stim += 1
-    new_stim_time = stim_time[:last_stim]
-
-    new_stim_time = list(np.linspace(0, 1, 50))
-    model = ModelMaker.create_model("ding2007", stim_time=new_stim_time, sum_stim_truncation=10)
+    #last_stim = 0
+    #while stim_time[last_stim] < tracked_data["time"][-1]:
+    #    last_stim += 1
+    #new_stim_time = stim_time[:last_stim]
+    stim_time = list(np.round(stim_time, 2))
+    new_stim_time = list(np.linspace(0, 1, 47))
+    model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
 
     ocp = prepare_ocp(
         model,
         final_time,
         pulse_width_values,
         tracked_data=tracked_data,
-        stim_time=new_stim_time,
+        stim_time=stim_time,
         key_parameter_to_identify=[
             "km_rest",
             "tau1_rest",
@@ -147,9 +161,9 @@ def main(plot=True, pickle_path=None, muscle_name=None):
             default_model=default_model,
             show_bounds=False,
             show_stim=True,
-            stim_time=new_stim_time
+            stim_time=stim_time
         )
 
 
 if __name__ == "__main__":
-    main(plot=True, pickle_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\essai2_florine_force_biceps.pkl_0.pkl", muscle_name="BIC_long")
+    main(plot=True, pickle_path="/home/mickaelbegon/Documents/Stage_Florine/essai1_florine_50Hz_400us_15mA_TR1s.c3d", muscle_name="BIC_long")
