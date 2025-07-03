@@ -9,6 +9,7 @@ from .models.hmed2018 import DingModelPulseIntensityFrequency
 from .models.hmed2018_with_fatigue import DingModelPulseIntensityFrequencyWithFatigue
 from .models.dynamical_model import FesMskModel
 from .models.model_maker import ModelMaker
+from .models.muscle_driven_passive_torque import MuscleDrivenPassiveTorque
 from .optimization.fes_ocp import OcpFes
 from .optimization.fes_id_ocp import OcpFesId
 from .optimization.fes_id_ocp_multibody import OcpFesIdMultibody
