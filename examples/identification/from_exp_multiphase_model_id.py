@@ -1,6 +1,10 @@
+import pickle
+
 import numpy as np
 import matplotlib.pyplot as plt
 import casadi
+from casadi import exp
+from scipy.odr import quadratic
 
 from bioptim import (
     OdeSolver,
@@ -108,7 +112,7 @@ def set_x_bounds(bio_models, i, x_init, x_bounds):
             if variable_bound_list[j] == "Cn_" + muscle_name:
                 max_bounds[j] = 10
             elif variable_bound_list[j] == "F_" + muscle_name:
-                max_bounds[j] = model.fmax
+                max_bounds[j] = 1000
             elif variable_bound_list[j] == "Tau1_" + muscle_name or variable_bound_list[j] == "Km_" + muscle_name:
                 max_bounds[j] = 1
             elif variable_bound_list[j] == "A_" + muscle_name:
@@ -155,81 +159,85 @@ def prepare_ocp(
     phase_transition = PhaseTransitionList()
     x_bounds = BoundsList()
     x_init = InitialGuessList()
-
-    for i in range(n_phase):
+    final_time_sum = 0
+    # for i in range(n_phase):
 
         # Problem parameters
-        n_shooting.append(models[i].muscles_dynamics_model[0].get_n_shooting(final_time[i]))
-        phase_time = np.array(time[i]) - time[i][0]
-        q_at_node.append(DataExtraction.force_at_node_in_ocp(phase_time, q_target[i], n_shooting[i], final_time[i]))
-        numerical_data_time, stim_idx_at_node = models[i].muscles_dynamics_model[0].get_numerical_data_time_series(
-            n_shooting[i], final_time[i]
-        )
-        numerical_data_time_series.append(numerical_data_time)
-        stim_idx_at_node_list.append(stim_idx_at_node)
+    # n_shooting.append(models[0].muscles_dynamics_model[0].get_n_shooting(final_time[0]))
+    n_shooting.append(q_target.shape[0])
+    # phase_time = np.array(time[i]) - time[i][0]
+    # q_at_node.append(DataExtraction.force_at_node_in_ocp(phase_time, q_target[i], n_shooting[i], final_time[i]))
+    q_at_node.append(DataExtraction.force_at_node_in_ocp(time, q_target, n_shooting[0], final_time[0]))
+    # final_time_sum += final_time[i]
+    numerical_data_time, stim_idx_at_node = models[0].muscles_dynamics_model[0].get_numerical_data_time_series(
+        n_shooting[0], final_time[0]
+    )
+    numerical_data_time_series.append(numerical_data_time)
+    stim_idx_at_node_list.append(stim_idx_at_node)
 
-        # Dynamics definition
-        dynamics.add(
-            models[i].declare_model_variables,
-            dynamic_function=models[i].muscle_dynamic,
-            expand_dynamics=True,
-            expand_continuity=False,
-            phase=i,
-            phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
-            numerical_data_timeseries=numerical_data_time_series[i],
-            with_contact=False,
-        )
+    # Dynamics definition
+    dynamics.add(
+        models[0].declare_model_variables,
+        dynamic_function=models[0].muscle_dynamic,
+        expand_dynamics=True,
+        expand_continuity=False,
+        phase=0,
+        phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
+        numerical_data_timeseries=numerical_data_time_series[0],
+        with_contact=False,
+        with_passive_torque=True,
+    )
 
-        # States bounds and initial guess
-        x_bounds, x_init = set_x_bounds(models[i], i, x_init, x_bounds)
-        q_x_bounds = models[i].bounds_from_ranges("q")
-        q_x_bounds.min[0][0] = q_at_node[i][0]
-        q_x_bounds.max[0][0] = q_at_node[i][0]
-        q_x_bounds.max[0][1] = np.deg2rad(180-44)  # Participant's joint limit
-        q_x_bounds.max[0][2] = np.deg2rad(180-44)  # Participant's joint limit
-        qdot_x_bounds = models[i].bounds_from_ranges("qdot")
-        if i == 0:
-            qdot_x_bounds.min[0][0] = 0
-            qdot_x_bounds.max[0][0] = 0
+    # States bounds and initial guess
+    x_bounds, x_init = set_x_bounds(models[0], 0, x_init, x_bounds)
+    q_x_bounds = models[0].bounds_from_ranges("q")
+    q_x_bounds.min[0][0] = q_at_node[0][0] - 0.1
+    q_x_bounds.max[0][0] = q_at_node[0][0] + 0.1
+    q_x_bounds.min[0][1] = -2
+    q_x_bounds.min[0][2] = -2
+    q_x_bounds.max[0][1] = 5
+    q_x_bounds.max[0][2] = 5
+    # q_x_bounds.max[0][1] = np.deg2rad(180-44)  # Participant's joint limit
+    # q_x_bounds.max[0][2] = np.deg2rad(180-44)  # Participant's joint limit
+    qdot_x_bounds = models[0].bounds_from_ranges("qdot")
+    qdot_x_bounds.min[0][0] = 0
+    qdot_x_bounds.max[0][0] = 1
 
-        x_bounds.add(key="q", bounds=q_x_bounds, phase=i, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
-        x_bounds.add(key="qdot", bounds=qdot_x_bounds, phase=i, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
+    x_bounds.add(key="q", bounds=q_x_bounds, phase=0, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
+    x_bounds.add(key="qdot", bounds=qdot_x_bounds, phase=0, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
 
-        # Controls bounds and initial guess
-        if isinstance(models[i].muscles_dynamics_model[0], DingModelPulseWidthFrequency):
-            for muscle in models[i].muscles_dynamics_model:
-                control_bounds = [pulse_width_values[i]] * n_shooting[i]  #["last_pulse_width_" + muscle.muscle_name]
-                u_init.add(
-                    key="last_pulse_width_" + muscle.muscle_name,
-                    initial_guess=np.array([control_bounds]),
-                    phase=i,
-                    interpolation=InterpolationType.EACH_FRAME,
-                )
-                u_bounds.add(
-                    "last_pulse_width_" + muscle.muscle_name,
-                    min_bound=np.array([control_bounds])-0.0001,
-                    max_bound=np.array([control_bounds])+0.0001,
-                    interpolation=InterpolationType.EACH_FRAME,
-                    phase=i,
-                )
+    # Controls bounds and initial guess
+    if isinstance(models[0].muscles_dynamics_model[0], DingModelPulseWidthFrequency):
+        for muscle in models[0].muscles_dynamics_model:
+            u_init.add(
+                key="last_pulse_width_" + muscle.muscle_name,
+                initial_guess=np.array([pulse_width_values]),
+                phase=0,
+                interpolation=InterpolationType.EACH_FRAME,
+            )
+            u_bounds.add(
+                "last_pulse_width_" + muscle.muscle_name,
+                min_bound=np.array([pulse_width_values]),
+                max_bound=np.array([pulse_width_values]),
+                interpolation=InterpolationType.EACH_FRAME,
+                phase=0,
+            )
 
         # Add objective functions
-        target.append(np.array(q_at_node[i])[np.newaxis, :])
+        target.append(np.array(q_at_node[0])[np.newaxis, :])
+
         objective_functions.add(
             ObjectiveFcn.Lagrange.MINIMIZE_STATE,
             key="q",
-            weight=1,
-            target=target[i],
+            weight=10000,
+            target=target[0],
             node=Node.ALL,
             quadratic=True,
             index=[0],
-            phase=i,
+            phase=0,
         )
 
-        x_init.add(key="q", initial_guess=target[i], interpolation=InterpolationType.EACH_FRAME, phase=i)
-
-        # Phase transition
-        phase_transition.add(PhaseTransitionFcn.DISCONTINUOUS, phase_pre_idx=i)
+        x_init.add(key="q", initial_guess=target[0], interpolation=InterpolationType.EACH_FRAME, phase=0)
 
     # Parameters definition
     ocp_fes_id = OcpFesId()
@@ -261,9 +269,8 @@ def prepare_ocp(
             parameters[param_key].function(
                 fes_models_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
             )
-
-    models[0].parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
-    models[1].parameters = parameters.mx
+    for i in range(n_phase):
+        models[i].parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
 
     return OptimalControlProgram(
         bio_model=models,
@@ -282,7 +289,7 @@ def prepare_ocp(
         use_sx=use_sx,
         n_threads=20,
         ode_solver=OdeSolver.RK4(n_integration_steps=10),
-        phase_transitions=phase_transition,
+        # ode_solver=OdeSolver.COLLOCATION(polynomial_degree=9, method="radau"),
     )
 
 
@@ -290,57 +297,65 @@ def main(plot=True, n_phase=2):
     final_time = []
 
     # Get experimental data
-    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\lucie_50Hz_250-300-350-400-450usx2_22mA_1dof_1sr.c3d")
-    time, Q_rad, stim_time = converter.get_sliced_time_Q_rad()
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P05/p05_motion_50Hz_62.c3d")
+    # converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/testp_kevin_20Hz_69.c3d")
+    converter.frequency_stimulation = 33
+    data_dict = converter.get_sliced_time_Q_rad()
+    time = data_dict["time"]
+    stim_time = data_dict["stim_time"]
+    Q_rad = data_dict["q"]
+
+    total_cycles = 1
+    with open("../data_process/seeds_pulse_width.pkl", "rb") as f:
+        data = pickle.load(f)
+    pulse_width_list = data[62]  # Example pulse width values for each phase
+    pulse_width_control = []
+    for i in range(total_cycles):
+        pulse_width_control.append([pulse_width_list[i]] * Q_rad[i].shape[0])
+
+    pulse_width_control = [item for sublist in pulse_width_control for item in sublist]
+    Q_rad = np.concatenate(Q_rad[:total_cycles])
+    time = np.concatenate(time[:total_cycles])
+    stim_time = np.concatenate(stim_time[:total_cycles])
+
+    plt.plot(time, Q_rad)
+    plt.scatter(stim_time, [0] * len(stim_time), label="Stimulus", color="green")
+    plt.show()
 
     # Define MSK models
     models = []
-    for i in range(n_phase):
-        model = FesMskModel(
-            name=None,
-            biorbd_path="../model_msk/arm26_biceps_1dof.bioMod",
-            muscles_model=[DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)],
-            stim_time=list(np.round(stim_time[i], 2)),
-            activate_force_length_relationship=True,
-            activate_force_velocity_relationship=True,
-            activate_passive_force_relationship=True,
-            activate_residual_torque=False,
-            external_force_set=None,  # External forces will be added later
-        )
-        models.append(model)
+    # for i in range(n_phase):
+    muscle_model = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
+    # Set the muscle model parameters
+    # muscle_model.a_scale = 2693.03548082
+    model = FesMskModel(
+        name=None,
+        biorbd_path="../model_msk/p05_scaling_scaled.bioMod",
+        muscles_model=[muscle_model],
+        stim_time=list(np.round(stim_time, 2)),
+        activate_force_length_relationship=True,
+        activate_force_velocity_relationship=True,
+        activate_passive_force_relationship=True,
+        activate_residual_torque=False,
+        external_force_set=None,  # External forces will be added later
+    )
+    models.append(model)
 
-        final_time.append(np.round(time[i][-1] - time[i][0], 2))
-
-    Q_rad = Q_rad[:n_phase]
-    time = time[:n_phase]
-
-    for i in range(len(Q_rad)):
-        plt.plot(time[i], Q_rad[i])
-    #plt.show()
-
-    #pulse_width_values_BIClong0 = [0.00025] * 155
-    #pulse_width_values_BIClong1 = [0.0003] * 170
-    #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
-    #pulse_width_values0 = {
-        #"last_pulse_width_BIClong": pulse_width_values_BIClong0,
-        #"last_pulse_width_BICshort": pulse_width_values_BICshort,
-    #}
-    #pulse_width_values1 = {"last_pulse_width_BIClong": pulse_width_values_BIClong1}
-
-    #pulse_width_values = [pulse_width_values0, pulse_width_values1]
+    # final_time.append(np.round(time[i][-1] - time[i][0], 2))
+    final_time.append(time[-1])
 
     pulse_width_values_per_phase = [0.00025, 0.0003]
     ocp = prepare_ocp(
         models,
         final_time,
-        pulse_width_values_per_phase,
+        pulse_width_control,
         key_parameter_to_identify=[
             "tau1_rest",
             "tau2",
             "km_rest",
             "a_scale",
-            "pd0",
-            "pdt",
+            # "pd0",
+            # "pdt",
         ],
         q_target=Q_rad,
         time=time,
@@ -348,22 +363,50 @@ def main(plot=True, n_phase=2):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000)) #, _tol=1e-12))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=10000, _linear_solver="ma57")) #, _tol=1e-12))
     sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():
         print(f"{key}: {value}")
 
-    sol_time_list = []
-    sol_Q_list = []
+    sol_Q = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["q"][0]
+    sol_time = sol.decision_time(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES]).T[0]
 
-    for i in range(n_phase):
-        sol_time = sol.decision_time(to_merge=SolutionMerge.NODES)[i]
-        sol_Q = sol.decision_states(to_merge=SolutionMerge.NODES)[i]["q"][0]
+    # Passive torque plot:
+    passive_torque_plot = True
+    if passive_torque_plot:
+        omega = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["qdot"][0]
+        #omega = np.where(omega < 0, 0, omega)  # Set negative velocities to zero
 
-        sol_time_list.append(sol_time)
-        sol_Q_list.append(sol_Q)
+        k1 = 2.21240926  # k=0.5
+        k2 = 0.01000078
+        k3 = 4.62075725
+        k4 = 0.65673475
+        theta_max = 2.45832029
+        theta_min = 0.2498686
+        #c = [-kc1 * np.exp(kc2 * (sol_Q[i] - theta_min)) + kc3 * np.exp(kc4 * (sol_Q[i] - theta_max)) for i in range(sol_Q.shape[0])]
+        c=0.1
+        theta = sol_Q
+
+        #elastic = k1*exp(-k2 * (theta - theta_min)) - k3 * exp(k4 * (theta - theta_max))
+        #s = 1 / (1 + exp(-omega[i]))
+        tau = [k1 * exp(-k2 * (theta[i] - theta_min)) * (1 - 1 / (1 + exp(-0.5*omega[i]))) - k3 * exp(k4 * (theta[i] - theta_max)) * 1 / (1 + exp(-0.5*omega[i])) #- (c * omega[i])
+                    for i in range(sol_Q.shape[0])]
+        #tau = [k1*exp(k2-k2*(theta[i]-theta_min))**4 if omega[i]<0 else - k3*exp(k4*(theta[i]-theta_max))**4 for i in range(sol_Q.shape[0])]#elastic - c * omega
+
+        plt.figure()
+        sc = plt.scatter(theta, np.array(tau).reshape(len(tau)), c=omega, cmap='viridis', s=20)
+        plt.colorbar(sc, label='ω (rad/s)')
+        plt.axvline(theta_min, linestyle=':', label='Extension limit')
+        plt.axvline(theta_max, linestyle=':', label='Flexion limit')
+        plt.xlabel('Elbow angle θ (rad)')
+        plt.ylabel('Passive torque τ (N·m)')
+        plt.title('Passive Torque vs Angle with Variable Speed Profile')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
 
     if plot:
         # Plot the simulation and identification results
@@ -372,13 +415,13 @@ def main(plot=True, n_phase=2):
         ax.set_xlabel("time (s)")
         ax.set_ylabel("q (radian)")
 
-        for i in range(n_phase):
-            ax.plot(sol_time_list[i], sol_Q_list[i], label="Identified q", color='red')
-            ax.plot(time[i], Q_rad[i], label="Experimental q ", color='blue')
-            ax.scatter(list(np.round(stim_time[i], 2)), [0]*len(stim_time[i]), label="Stimulus", color="green")
+        ax.plot(time, Q_rad, label="Experimental q ", color='blue')
+        ax.scatter(list(np.round(stim_time, 2)), [0]*len(stim_time), label="Stimulus", color="green")
+
+        ax.plot(sol_time, sol_Q, label="Identified q", color='red')
         ax.legend()
         plt.show()
 
 
 if __name__ == "__main__":
-    main(n_phase=2)
+    main(n_phase=1)

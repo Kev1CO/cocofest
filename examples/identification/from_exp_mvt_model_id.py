@@ -41,7 +41,22 @@ def slicing_data(q: list[list], time: list[list], stim_time: list[list]):
     new_q = np.concatenate((q[0][:end_index], q[1][:]))
     new_stim_time = np.concatenate((stim_time[0], stim_time[1] - time[1][0] + time[0][end_index]))
     new_time = np.concatenate((time[0][:end_index], time[1][:] - time[1][0] + time[0][end_index]))
-    
+    # for j in range(len(q)-1):
+    #     for i in range(50, len(q[j])):
+    #         if q[j][i] < start:
+    #             end = q[j][i]
+    #             end_time = time[j][i]
+    #             end_index = i
+    #             break
+    #     if j == 0:
+    #         new_q = np.concatenate((q[j][:end_index], q[j+1][:]))
+    #         new_stim_time = np.concatenate((stim_time[j], stim_time[j+1] - time[j+1][0] + time[j][end_index]))
+    #         new_time = np.concatenate((time[j][:end_index], time[j+1][:] - time[j+1][0] + time[j][end_index]))
+    #     else:
+    #         new_q = np.concatenate((new_q, q[j + 1][:]))
+    #         new_stim_time = np.concatenate((new_stim_time, stim_time[j + 1] - time[j + 1][0] + time[j][end_index]))
+    #         new_time = np.concatenate((new_time, time[j + 1][:] - time[j + 1][0] + time[j][end_index]))
+
     return new_q, new_time, new_stim_time
 
 
@@ -69,18 +84,39 @@ def prepare_ocp(
     dynamics = OcpFesMsk.declare_dynamics(
         model,
         numerical_time_series=numerical_data_time_series,
-        with_contact=False
+        with_contact=False,
+        with_passive_torque=True,
     )
 
     x_bounds, x_init = OcpFesMsk.set_x_bounds_fes(model)
     q_x_bounds = model.bounds_from_ranges("q")
+    # q_x_bounds.min[0][0] = q_at_node[0]
+    # q_x_bounds.max[0][0] = q_at_node[0]
+    q_x_bounds.min[0] = [-1, -1, -1]
+    # q_x_bounds.max[0][0] = np.deg2rad(180-44)
+    # q_x_bounds.max[0][1] = np.deg2rad(180-44)
+    # q_x_bounds.max[0][2] = np.deg2rad(180-44)
     qdot_x_bounds = model.bounds_from_ranges("qdot")
+    # qdot_x_bounds.min[0][0] = 0
+    # qdot_x_bounds.max[0][0] = 0
     x_bounds.add(key="q", bounds=q_x_bounds, phase=0)
     x_bounds.add(key="qdot", bounds=qdot_x_bounds, phase=0)
 
     u_bounds = BoundsList()  # Controls bounds
     u_init = InitialGuessList()  # Controls initial guess
     if isinstance(fes_model[0], DingModelPulseWidthFrequency):
+        # u_init.add(
+        #     key="tau",
+        #     initial_guess=np.array([0]),
+        #     phase=0,
+        #     interpolation=InterpolationType.CONSTANT,
+        # )
+        # u_bounds.add(
+        #     "tau",
+        #     min_bound=np.array([0]),
+        #     max_bound=np.array([3]),
+        #     interpolation=InterpolationType.CONSTANT,
+        # )
         for muscle in model.muscles_dynamics_model:
             control_bounds = pulse_width_values["last_pulse_width_" + muscle.muscle_name]
             u_init.add(
@@ -98,8 +134,17 @@ def prepare_ocp(
 
     target = np.array(q_at_node)[np.newaxis, :]
     objective_functions = ObjectiveList()
+     #objective_functions.add(
+     #    ObjectiveFcn.Lagrange.,
+     #    key="q",
+     #    weight=1000,
+     #    target=target,
+     #    node=Node.ALL,
+     #    quadratic=True,
+     #    index=[0],
+     #)
     objective_functions.add(
-        ObjectiveFcn.Lagrange.MINIMIZE_STATE,
+        ObjectiveFcn.Mayer.MINIMIZE_STATE,
         key="q",
         weight=1000,
         target=target,
@@ -107,6 +152,11 @@ def prepare_ocp(
         quadratic=True,
         index=[0],
     )
+    # objective_functions.add(
+    #     ObjectiveFcn.Lagrange.MINIMIZE_CONTROL,
+    #     key="tau",
+    #     weight=100000,
+    # )
 
     x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME, phase=0)
     ocp_fes_id = OcpFesId()
@@ -152,17 +202,17 @@ def prepare_ocp(
 
 
 def main(plot=True):
-    converter = C3dToQ("C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_22mA.c3d")
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/lucie_50Hz_250-300-350-400-450x2_22mA.c3d")
     exp_data = converter.get_sliced_time_Q_rad()
     time = exp_data["time"]
     Q_rad = exp_data["q"]
     stim_time = exp_data["stim_time"]
     final_time = np.round(time[1][-1], 2)
 
-    #plt.plot(time[0], Q_rad[0], label="before slicing", color="green", alpha=0.5)
-    #plt.plot(time[1], Q_rad[1], color="green", alpha=0.5)
-    #plt.scatter(stim_time[0], [0]*len(stim_time[0]), label="Stimulus", color="purple", alpha=0.5)
-    #plt.scatter(stim_time[1], [0] * len(stim_time[1]), color="purple", alpha=0.5)
+    # plt.plot(time[0], Q_rad[0], label="before slicing", color="green", alpha=0.5)
+    # plt.plot(time[1], Q_rad[1], color="green", alpha=0.5)
+    # plt.scatter(stim_time[0], [0]*len(stim_time[0]), label="Stimulus", color="purple", alpha=0.5)
+    # plt.scatter(stim_time[1], [0] * len(stim_time[1]), color="purple", alpha=0.5)
 
     Q_rad, time, stim_time = slicing_data(Q_rad, time, stim_time)
 
@@ -170,10 +220,10 @@ def main(plot=True):
     #Q_rad = np.concatenate((Q_rad[0], Q_rad[1]))
     #time = np.concatenate((time[0], time[1]))
 
-    plt.plot(time, Q_rad, label="after slicing", color="blue", alpha=0.5)
-    plt.scatter(stim_time, [0]*len(stim_time), label="Stimulus", color="red", alpha=0.5)
-    plt.legend()
-    plt.show()
+    # plt.plot(time, Q_rad, label="after slicing", color="blue", alpha=0.5)
+    # plt.scatter(stim_time, [0]*len(stim_time), label="Stimulus", color="red", alpha=0.5)
+    # plt.legend()
+    # plt.show()
 
     model_BIClong = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
     # model_BIClong.a_scale = 4210
@@ -198,14 +248,15 @@ def main(plot=True):
         activate_force_length_relationship=True,
         activate_force_velocity_relationship=True,
         activate_passive_force_relationship=True,
+        # activate_residual_torque=True,
         activate_residual_torque=False,
         external_force_set=None,  # External forces will be added later
     )
 
-    pulse_width_values_BIClong = [0.00025] * 194 + [0.0003] * 180
+    pulse_width_values_BIC_long = [0.00025] * 141 + [0.0003] * 180
     #pulse_width_values_BICshort = sim_data["last_pulse_width_BICshort"]
     pulse_width_values = {
-        "last_pulse_width_BIClong": pulse_width_values_BIClong,
+        "last_pulse_width_BIClong": pulse_width_values_BIC_long,
         #"last_pulse_width_BICshort": pulse_width_values_BICshort,
     }
     # plt.plot(time, Q_rad)
@@ -229,7 +280,7 @@ def main(plot=True):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _tol=1e-12))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=10000, _linear_solver="ma57"))
     sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
@@ -252,8 +303,7 @@ def main(plot=True):
 
         ax.legend()
         plt.show()
-        # sol.graphs(show_bounds=True)
-        sol.animate()
+        # sol.animate(viewer="pyorerun", n_frames=100)
 
 
 if __name__ == "__main__":
