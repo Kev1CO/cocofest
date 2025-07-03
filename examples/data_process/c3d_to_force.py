@@ -43,7 +43,7 @@ class C3dToForce:
         self.sliced_time = None
         self.sliced_data = None
         self.avg_stim_time = None
-        self.dictionary = {}
+        self.handle_dictionary = {}
 
         if c3d_path is None:
             raise ValueError("Please provide a c3d paths.")
@@ -55,7 +55,7 @@ class C3dToForce:
 
         self.saving_pickle_path = saving_pickle_path
 
-        self.avg_stim_time = self._get_avg_time_diff()
+        self.avg_stim_time = {20: 0.0008799999999999671, 33: 0.0008608695652174252, 50: 0.0008739549839228076}
 
         self.rest_time = kwargs["rest_time"] if "rest_time" in kwargs else 1
 
@@ -75,45 +75,46 @@ class C3dToForce:
         if type(self.order) != type(self.cutoff):
             raise TypeError("window_length and order must be both None or int type")
 
-        if model_path is None:
-            raise ValueError("Please provide a path to the model.")
-        if not isinstance(model_path, str):
-            raise TypeError("Please provide a str type model path.")
+        if "transfer_force" in kwargs and kwargs["transfer_force"]:
+            if model_path is None:
+                raise ValueError("Please provide a path to the model.")
+            if not isinstance(model_path, str):
+                raise TypeError("Please provide a str type model path.")
 
-        self.model_path = model_path
-        self.local_data = None
-        self.model = None
-        self.Q = None
-        self.Qdot = None
-        self.Qddot = None
-        self.dof_name = dof_name
-        self.muscle_name = muscle_name
-        self.muscle_moment_arm = None
-        self.muscle_force_vector = None
-        self.muscle_force_vector_list = []
-        self.saved_dictionary = {}
+            self.model_path = model_path
+            self.local_data = None
+            self.model = None
+            self.Q = None
+            self.Qdot = None
+            self.Qddot = None
+            self.dof_name = dof_name
+            self.muscle_name = muscle_name
+            self.muscle_moment_arm = None
+            self.muscle_force_vector = None
+            self.muscle_force_vector_list = []
+            self.saved_dictionary = {}
 
-        # Load the model
-        self.load_model(elbow_angle)
+            # Load the model
+            self.load_model(elbow_angle)
 
-        # Saving muscle/dof names and indexes as dict
-        self.muscle_name_index = {}
-        for i in range(len(self.model.muscleNames())):
-            self.muscle_name_index[self.model.muscleNames()[i].to_string()] = i
+            # Saving muscle/dof names and indexes as dict
+            self.muscle_name_index = {}
+            for i in range(len(self.model.muscleNames())):
+                self.muscle_name_index[self.model.muscleNames()[i].to_string()] = i
 
-        self.dof_name_index = {}
-        for i in range(len(self.model.nameDof())):
-            self.dof_name_index[self.model.nameDof()[i].to_string()] = i
+            self.dof_name_index = {}
+            for i in range(len(self.model.nameDof())):
+                self.dof_name_index[self.model.nameDof()[i].to_string()] = i
 
-        if self.muscle_name not in self.muscle_name_index.keys():
-            raise ValueError(
-                f"Please provide a muscle name in the muscle_index dictionary : {list(self.muscle_name_index.keys())}."
-            )
+            if self.muscle_name not in self.muscle_name_index.keys():
+                raise ValueError(
+                    f"Please provide a muscle name in the muscle_index dictionary : {list(self.muscle_name_index.keys())}."
+                )
 
-        if self.dof_name not in self.dof_name_index.keys():
-            raise ValueError(
-                f"Please provide a dof name in the dof_index dictionary : {list(self.dof_name_index.keys())}."
-            )
+            if self.dof_name not in self.dof_name_index.keys():
+                raise ValueError(
+                    f"Please provide a dof name in the dof_index dictionary : {list(self.dof_name_index.keys())}."
+                )
 
     @staticmethod
     def read_text_file_to_matrix(file_path):
@@ -331,7 +332,7 @@ class C3dToForce:
                             self.sliced_data[i][j][k + 1 :] = 0
                             break
 
-    def get_stimulation(self, time, stimulation_signal, average_time_difference=None):
+    def get_stimulation(self, time, stimulation_signal):
         """
         This function detects the stimulation time and returns the time and index of the stimulation
         Parameters
@@ -371,11 +372,10 @@ class C3dToForce:
                 peaks.append(index)
         time_peaks = [time[peak] for peak in peaks]
 
-        if average_time_difference:
-            time_peaks = np.array(time_peaks) + average_time_difference
-            peaks = np.array(peaks) + int(
-                average_time_difference * self.frequency_acquisition
-            )
+        time_peaks = np.array(time_peaks) + self.avg_stim_time[self.frequency_stimulation]
+        peaks = np.array(peaks) + int(
+            self.avg_stim_time[self.frequency_stimulation] * self.frequency_acquisition
+        )
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()
@@ -433,8 +433,7 @@ class C3dToForce:
         return time_peaks, peaks
 
     def _get_avg_time_diff(
-        self, c3d_path_stim_diff: str | list[str] = "stim_diff_50Hz.c3d"
-    ):
+        self, c3d_path_stim_diff: str | list[str]):
         """
         This function calculates the average time difference between the stimulation time and the measured data
         Parameters
@@ -483,7 +482,7 @@ class C3dToForce:
             return avg_time_diff
 
     @staticmethod
-    def save_in_pkl(self, data, saving_pickle_path):
+    def save_in_pkl(data, saving_pickle_path):
         with open(saving_pickle_path, "wb") as file:
             pickle.dump(data, file)
 
@@ -532,7 +531,6 @@ class C3dToForce:
         self.stimulation_time, peaks = self.get_stimulation(
             time=self.time,
             stimulation_signal=self.stim_data,
-            average_time_difference=self.avg_stim_time,
         )
         # Add ergometer torque to data
         if isinstance(self.filtered_6d_force, list):
@@ -555,7 +553,7 @@ class C3dToForce:
         #    plt.plot(self.sliced_time[j], self.sliced_data[0][j])
         #plt.show()
 
-        self.dictionary = {
+        self.handle_dictionary = {
             "time": self.sliced_time,
             "x": self.sliced_data[0],
             "y": self.sliced_data[1],
@@ -642,6 +640,7 @@ class C3dToForce:
         The muscle force
         """
         self.muscle_force_vector = []
+        tau_list = []
         for i in range(len(local_data[0])):
             spatial_vector = np.array(
                 [
@@ -666,14 +665,16 @@ class C3dToForce:
             ).to_array()
             dof_index = self.dof_name_index[self.dof_name]
             tau = tau[dof_index]
+            tau_list.append(tau)
             muscle_force = tau / self.muscle_moment_arm
             self.muscle_force_vector.append(muscle_force)
+        self.save_in_pkl(tau_list, "tau_p07.pkl")
 
     def get_force(self, save: bool = False, plot: bool = True):
         self.get_data_at_handle()
-        for i in range(len(self.dictionary["x"])):
-            force_data = np.array([self.dictionary["x"][i], self.dictionary["y"][i], self.dictionary["z"][i]])
-            torque_data = np.array([self.dictionary["mx"][i], self.dictionary["my"][i], self.dictionary["mz"][i]])
+        for i in range(len(self.handle_dictionary["x"])):
+            force_data = np.array([self.handle_dictionary["x"][i], self.handle_dictionary["y"][i], self.handle_dictionary["z"][i]])
+            torque_data = np.array([self.handle_dictionary["mx"][i], self.handle_dictionary["my"][i], self.handle_dictionary["mz"][i]])
             local_force_data = self.local_sensor_to_local_hand(force_data)
             local_torque_data = self.local_sensor_to_local_hand(torque_data)
             self.local_data = np.concatenate((local_force_data, local_torque_data))
@@ -683,31 +684,90 @@ class C3dToForce:
             self.muscle_force_vector = np.array(self.muscle_force_vector) - self.muscle_force_vector[0]
             self.muscle_force_vector_list.append(self.muscle_force_vector)
 
-        self.saved_dictionary = {"force": self.muscle_force_vector_list, "time": self.dictionary["time"], "stim_time": self.dictionary["stim_time"], "muscle_name": self.muscle_name, "dof_name": self.dof_name}
+        self.saved_dictionary = {"force": self.muscle_force_vector_list, "time": self.handle_dictionary["time"], "stim_time": self.handle_dictionary["stim_time"], "muscle_name": self.muscle_name, "dof_name": self.dof_name}
 
         if save:
             self.save_in_pkl(self.saved_dictionary, self.saving_pickle_path)
 
         if plot:
             for i in range(len(self.muscle_force_vector_list)):
-                plt.plot(self.dictionary["time"][i], self.muscle_force_vector_list[i], color="blue")
-                plt.scatter(self.dictionary["stim_time"][i], [0] * len(self.dictionary["stim_time"][i]), color="red", label="Stimulation")
+                plt.plot(self.handle_dictionary["time"][i], self.muscle_force_vector_list[i], color="blue")
+                plt.scatter(self.handle_dictionary["stim_time"][i], [0] * len(self.handle_dictionary["stim_time"][i]), color="red", label="Stimulation")
             plt.title('Muscle Force and Stimulation')
             plt.show()
 
 
 if __name__ == "__main__":
     force_converter = C3dToForce(
-        c3d_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.c3d",
+        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\avec_stim_ergo.c3d",
         calibration_matrix_path="matrix.txt",
-        saving_pickle_path="essai5_florine_50Hz_400us_15mA_TR1s_vertical.pkl",
+        saving_pickle_path="test.pkl",
         frequency_acquisition=10000,
-        frequency_stimulation=50,
+        frequency_stimulation=20,
         rest_time=1,
-        model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
-        elbow_angle=90,
-        muscle_name="BIC_long",
-        dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
+        #model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
+        #elbow_angle=90,
+        #muscle_name="BIC_long",
+        #dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
+        #transfer_force=True
     )
-    force_converter.get_force(save=False, plot=True)
-    #print(dict)
+    force_converter.get_data_at_handle()
+    data_stim = force_converter.filtered_6d_force
+
+
+
+    force_converter = C3dToForce(
+        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\sans_stim.c3d",
+        calibration_matrix_path="matrix.txt",
+        saving_pickle_path="test.pkl",
+        frequency_acquisition=10000,
+        frequency_stimulation=20,
+        rest_time=1,)
+
+    force_converter.get_data_at_handle()
+    data_sans_stim = force_converter.filtered_6d_force
+
+    force_converter = C3dToForce(
+        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\sans_stim_int.c3d",
+        calibration_matrix_path="matrix.txt",
+        saving_pickle_path="test.pkl",
+        frequency_acquisition=10000,
+        frequency_stimulation=20,
+        rest_time=1, )
+
+    force_converter.get_data_at_handle()
+    data_sans_stim_int = force_converter.filtered_6d_force
+
+    fig, axs = plt.subplots(2, 3, figsize=(10, 15))
+    axs[0, 0].plot(data_stim[0], label='avec stim')
+    axs[0, 0].plot(data_sans_stim[0], label='sans stim')
+    axs[0, 0].plot(data_sans_stim_int[0], label='sans stim - int')
+    axs[0, 0].legend()
+    axs[0, 0].set_title('x')
+    axs[0, 1].plot(data_stim[1], label='avec stim')
+    axs[0, 1].plot(data_sans_stim[1], label='sans stim')
+    axs[0, 1].plot(data_sans_stim_int[1], label='sans stim - int')
+    axs[0, 1].legend()
+    axs[0, 1].set_title('y')
+    axs[0, 2].plot(data_stim[2], label='avec stim')
+    axs[0, 2].plot(data_sans_stim[2], label='sans stim')
+    axs[0, 2].plot(data_sans_stim_int[2], label='sans stim - int')
+    axs[0, 2].legend()
+    axs[0, 2].set_title('z')
+    axs[1, 0].plot(data_stim[3], label='avec stim')
+    axs[1, 0].plot(data_sans_stim[3], label='sans stim')
+    axs[1, 0].plot(data_sans_stim_int[3], label='sans stim - int')
+    axs[1, 0].legend()
+    axs[1, 0].set_title('mx')
+    axs[1, 1].plot(data_stim[4], label='avec stim')
+    axs[1, 1].plot(data_sans_stim[4], label='sans stim')
+    axs[1, 1].plot(data_sans_stim_int[4], label='sans stim - int')
+    axs[1, 1].legend()
+    axs[1, 1].set_title('my')
+    axs[1, 2].plot(data_stim[5], label='avec stim')
+    axs[1, 2].plot(data_sans_stim[5], label='sans stim')
+    axs[1, 2].plot(data_sans_stim_int[5], label='sans stim - int')
+    axs[1, 2].legend()
+    axs[1, 2].set_title('mz')
+    plt.show()
+

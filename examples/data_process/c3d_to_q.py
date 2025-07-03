@@ -8,7 +8,7 @@ from pyomeca import Analogs, Markers
 
 class C3dToQ:
     def __init__(self, c3d_path: str | list[str]):
-        self.markers_index = {"should_r": 0, "delt_r": 1, "elbow_r": 2, "rwra": 3, "rwrb": 4}
+        self.markers_index = {"should_r": 0, "elbow_r": 1, "wrist_r": 2}
 
         if isinstance(c3d_path, str):
             self.c3d_path = [c3d_path]
@@ -48,7 +48,7 @@ class C3dToQ:
             self.markers_name = list(c3d.channel.data)
             self.data = c3d.data
             self.time = c3d.time.data
-            lst_index = self._set_index(self.markers_name)
+            #lst_index = self._set_index(self.markers_name)
             #self.data = self._reindex_3d_list(self.data, lst_index)
             self.data_dict = {}
             for i, marker in enumerate(self.markers_index.keys()):
@@ -199,8 +199,8 @@ class C3dToQ:
             with open(path, "wb") as file:
                 pickle.dump(data, file)
 
-    @staticmethod
-    def _get_stimulation(time, stimulation_signal, average_time_difference=None):
+
+    def _get_stimulation(self, time, stimulation_signal, average_time_difference=None):
         """
         This function detects the stimulation time and returns the time and index of the stimulation
         Parameters
@@ -242,7 +242,7 @@ class C3dToQ:
 
         if average_time_difference:
             time_peaks = np.array(time_peaks) + average_time_difference
-            peaks = np.array(peaks) + int(average_time_difference * self.frequency_acquisition_stim)
+            peaks = np.array(peaks) + int(self.average_time_difference * self.frequency_acquisition_stim)
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()
@@ -270,19 +270,24 @@ class C3dToQ:
             while i + 1 < len(peaks_index) and peaks_index[i + 1] - peaks_index[i] < delta:
                 i += 1
 
-            j = int(peaks_index[i] * self.frequency_acquisition / self.frequency_acquisition_stim) + 15
+            #j = int(peaks_index[i] * self.frequency_acquisition / self.frequency_acquisition_stim) #+15
 
-            while data[j + 1] - data[j] < 0:
-                j += 1
+            #while data[j + 1] - data[j] < 0:
+                #j += 1
 
-            last = j
+            if i + 1 >= len(peaks_index):
+                last = -1
+            else:
+                last = peaks_index[i + 1] - 1
+
+            #last = j
             #if i + 1 >= len(peaks_index):
                 #last = first + self.frequency_acquisition_stim * 2
             #else:
                 #last = peaks_index[i + 1] - 1
 
             first = int(first * self.frequency_acquisition / self.frequency_acquisition_stim)
-            #last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
+            last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
 
             sliced_time.append(self.time[first:last])
             sliced_data.append(data[first:last])
@@ -299,16 +304,24 @@ class C3dToQ:
         sliced_stim_time[0] = np.array(sliced_stim_time[0]) - sliced_time[0][0]
         sliced_time[0] = np.array(sliced_time[0]) - sliced_time[0][0]
 
-        for i in range(len(sliced_time) - 1):
-            sliced_stim_time[i + 1] = np.array(sliced_stim_time[i + 1]) - (sliced_time[i + 1][0] - sliced_time[i][-1])
-            sliced_time[i + 1] = np.array(sliced_time[i + 1]) - (sliced_time[i+1][0] - sliced_time[i][-1])
+        # for i in range(len(sliced_time) - 1):
+        #     sliced_stim_time[i + 1] = np.array(sliced_stim_time[i + 1]) - (sliced_time[i + 1][0] - sliced_time[i][-1])
+        #     sliced_time[i + 1] = np.array(sliced_time[i + 1]) - (sliced_time[i+1][0] - sliced_time[i][-1])
 
         return sliced_time, sliced_stim_time
 
-    def _get_q(self):
+    def forearm_length(self):
         self.load_c3d()
         self._get_wrist_position()
         self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.wirst_position)
+        norm_forearm = []
+        for i in range(len(self.forearm_position[0])):
+            norm_forearm.append(np.linalg.norm(self.forearm_position[:, i]))
+        return np.mean(norm_forearm)
+
+    def _get_q(self):
+        self.load_c3d()
+        self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["wrist_r"])
         self.humerus_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["should_r"])
         self.forearm_position_proj, self.humerus_position_proj = self._projection_vectors(self.forearm_position,
                                                                                          self.humerus_position)
@@ -326,6 +339,7 @@ class C3dToQ:
         return np.rad2deg(Q_rad)
 
     def get_time(self):
+        self.load_c3d()
         return self.time
 
     def get_sliced_time_Q_rad(self):
@@ -342,17 +356,25 @@ class C3dToQ:
         dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
         return dictionary
 
+    def get_sliced_stim_time(self):
+        Q_rad = self._get_q()
+        sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
+        dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
+        return dictionary
+
 
 if __name__ == "__main__":
-    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
+    c3d_path = "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\tests_pilote\\test_marqueur.c3d"
     c3d_to_q = C3dToQ(c3d_path)
     Q_rad = c3d_to_q.get_q_rad()
     time = c3d_to_q.get_time()
+    plt.plot(time, Q_rad)
+    plt.show()
     dict = c3d_to_q.get_sliced_time_Q_rad()
 
     for i in range(len(dict["q"])):
         plt.plot(dict["time"][i], dict["q"][i])
         plt.scatter(dict["stim_time"][i], [0] * len(dict["stim_time"][i]), color="red")
-    plt.show()
+    #plt.show()
     #"C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_21mA_doublet.c3d"
     #"C:\Users\flori_4ro0b8\Documents\Stage_S2M\c3d_file\essais_mvt_16.05.25\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
