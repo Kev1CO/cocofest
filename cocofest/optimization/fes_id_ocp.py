@@ -176,21 +176,21 @@ class OcpFesId(OcpFes):
                     "min_bound": 0.0001,
                     "max_bound": 1,
                     "function": model.set_tau1_rest,
-                    "scaling": 1,  # 10000
+                    "scaling": 1
                 },
                 "tau2": {
                     "initial_guess": 0.5,
                     "min_bound": 0.0001,
                     "max_bound": 1,
                     "function": model.set_tau2,
-                    "scaling": 1,  # 10000
+                    "scaling": 1
                 },
                 "km_rest": {
                     "initial_guess": 0.5,
                     "min_bound": 0.001,
                     "max_bound": 1,
                     "function": model.set_km_rest,
-                    "scaling": 1,  # 10000
+                    "scaling": 1
                 },
                 "a_scale": {
                     "initial_guess": 5000,
@@ -201,14 +201,14 @@ class OcpFesId(OcpFes):
                 },
                 "pd0": {
                     "initial_guess": 1e-4,
-                    "min_bound": 1e-4,
+                    "min_bound": 1e-5,
                     "max_bound": 6e-4,
                     "function": model.set_pd0,
                     "scaling": 1,  # 1000
                 },
                 "pdt": {
                     "initial_guess": 1e-4,
-                    "min_bound": 1e-4,
+                    "min_bound": 1e-5,
                     "max_bound": 6e-4,
                     "function": model.set_pdt,
                     "scaling": 1,  # 1000

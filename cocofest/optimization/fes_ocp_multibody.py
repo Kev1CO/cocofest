@@ -35,7 +35,7 @@ class OcpFesMsk(OcpFes):
         return numerical_time_series, external_force_set
 
     @staticmethod
-    def declare_dynamics(bio_models, numerical_time_series, with_contact):
+    def declare_dynamics(bio_models, numerical_time_series, with_contact, with_passive_torque=False):
         dynamics = DynamicsList()
         dynamics.add(
             bio_models.declare_model_variables,
@@ -46,6 +46,7 @@ class OcpFesMsk(OcpFes):
             phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
             numerical_data_timeseries=numerical_time_series,
             with_contact=with_contact,
+            with_passive_torque=with_passive_torque,
         )
         return dynamics
 

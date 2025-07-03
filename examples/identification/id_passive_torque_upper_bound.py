@@ -11,19 +11,6 @@ from cocofest.models.muscle_driven_passive_torque import MuscleDrivenPassiveTorq
 
 
 
-def slicing(q, time, stim_time):
-    sliced_q = []
-    sliced_time = []
-    for i in range(len(stim_time)):
-        last_stim = stim_time[i][-1]
-        next_stim = stim_time[i + 1][0] if i + 1 < len(stim_time) else time[-1]
-        time_between = np.where((time >= last_stim) & (time <= next_stim))[0]
-        sliced_q.append(q[time_between])
-        sliced_time.append(time[time_between])
-
-    return sliced_q, sliced_time
-
-
 def prepare_ocp(model_path,
     final_time: float,
     key_parameter_to_identify,
@@ -47,29 +34,29 @@ def prepare_ocp(model_path,
     additional_key_settings = {
         "k1": {
             "initial_guess": 5,
-            "min_bound": 0.1,#1,
-            "max_bound": 10, #10,
+            "min_bound": 0,#1,
+            "max_bound": 6, #10,
             "function": MuscleDrivenPassiveTorque.set_k1,
             "scaling": 1
         },
         "k2": {
             "initial_guess": 1,
-            "min_bound": 0.1,#1,
-            "max_bound": 10, #10,
+            "min_bound": 0,#1,
+            "max_bound": 6, #10,
             "function": MuscleDrivenPassiveTorque.set_k2,
             "scaling": 1
         },
         "k3": {
             "initial_guess": 2,
-            "min_bound": 0.1,#1,
-            "max_bound": 5, #10,
+            "min_bound": 0,#1,
+            "max_bound": 6, #10,
             "function": MuscleDrivenPassiveTorque.set_k3,
             "scaling": 1
         },
         "k4": {
             "initial_guess": 1,
-            "min_bound": 0.1,#1,
-            "max_bound": 5, #10,
+            "min_bound": 0,#1,
+            "max_bound": 10, #10,
             "function": MuscleDrivenPassiveTorque.set_k4,
             "scaling": 1
         },
@@ -83,8 +70,22 @@ def prepare_ocp(model_path,
         "kc2": {
             "initial_guess": 1,
             "min_bound": 0.01,#1,
-            "max_bound": 6, #10,
+            "max_bound": 10, #10,
             "function": MuscleDrivenPassiveTorque.set_kc2,
+            "scaling": 1
+        },
+        "kc3": {
+            "initial_guess": 1,
+            "min_bound": 0.1,  # 1,
+            "max_bound": 10,  # 10,
+            "function": MuscleDrivenPassiveTorque.set_kc3,
+            "scaling": 1
+        },
+        "kc4": {
+            "initial_guess": 1,
+            "min_bound": 0.01,  # 1,
+            "max_bound": 10,  # 10,
+            "function": MuscleDrivenPassiveTorque.set_kc4,
             "scaling": 1
         },
         "theta_c": {
@@ -94,17 +95,31 @@ def prepare_ocp(model_path,
             "function": MuscleDrivenPassiveTorque.set_theta_c,
             "scaling": 1
         },
+        "theta_max": {
+            "initial_guess": 5,
+            "min_bound": 0,  # 1,
+            "max_bound": 4,  # 10,
+            "function": MuscleDrivenPassiveTorque.set_theta_max,
+            "scaling": 1
+        },
+        "theta_min": {
+            "initial_guess": 5,
+            "min_bound": 0,  # 1,
+            "max_bound": 4,  # 10,
+            "function": MuscleDrivenPassiveTorque.set_theta_min,
+            "scaling": 1
+        },
         "e_min": {
             "initial_guess": 1,
-            "min_bound": 0.01,#1,
-            "max_bound": 15, #15,
+            "min_bound": 1,#1,
+            "max_bound": 1, #15,
             "function": MuscleDrivenPassiveTorque.set_e_min,
             "scaling": 1
         },
         "e_max": {
             "initial_guess": 5,
-            "min_bound": 0.01,#1,
-            "max_bound": 5, #15,
+            "min_bound": 1,#1,
+            "max_bound": 1, #15,
             "function": MuscleDrivenPassiveTorque.set_e_max,
             "scaling": 1
         },
@@ -125,10 +140,12 @@ def prepare_ocp(model_path,
     x_init.add(key="q", initial_guess=init_q.reshape(1, len(init_q)), interpolation=InterpolationType.EACH_FRAME)
 
     x_bounds.add(key="q", bounds=q_x_bounds)
-    x_bounds["q"].min[0] = [q_target[0], -3, -3]
+    x_bounds["q"].min[0] = [q_target[0], q_target[0], q_target[0]]
     x_bounds["q"].max[0] = [q_target[0], 4, 4]
 
     x_bounds.add(key="qdot", bounds=qdot_x_bounds)
+    # x_bounds["qdot"].min[0] = [0, -20, -20]
+    # x_bounds["qdot"].max[0] = [0, 20, 20]
 
     # tau_min, tau_max, tau_init = -1.0, 1.0, 0.0
     u_bounds = BoundsList()
@@ -172,29 +189,23 @@ def prepare_ocp(model_path,
     )
 
 def main(plot=True):
-    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P07/p07_motion_50Hz_15.c3d")
-    converter.frequency_stimulation = 50
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P07/p07_limit_upper.c3d")
     time = converter.get_time()
     q_rad = converter.get_q_rad()
-    stim_time = converter.get_sliced_stim_time()["stim_time"]
 
-    plt.plot(time, q_rad)
-    plt.show()
+    # plt.plot(time, q_rad)
+    # plt.show()
 
-    q_rad, time = slicing(q_rad, time, stim_time)
+    time = time[170:350]
+    time = time - time[0]  # Normalize time to start at 0
+    q_rad = q_rad[170:350]
 
-    for i in range(len(q_rad)):
-        plt.plot(time[i], q_rad[i])
-        plt.scatter(stim_time[i], [0] * len(stim_time[i]))
-    plt.show()
-
-    time = time[1]
-    time = time - time[0]  # Start time at 0
-    q_rad = q_rad[1]
+    # plt.plot(time, q_rad)
+    # plt.show()
 
     final_time = time[-1]
 
-    model_path = "../model_msk/p07_scaling_scaled.bioMod"
+    model_path = "../model_msk/p07_scaling_scaled_modified.bioMod"
 
     ocp = prepare_ocp(
         model_path,
@@ -204,10 +215,14 @@ def main(plot=True):
             "k2",
             "k3",
             "k4",
-            "kc1",
-            "kc2",
-            "e_min",
-            "e_max"
+            # "kc1",
+            # "kc2",
+            # "e_min",
+            # "e_max",
+            # "kc3",
+            # "kc4",
+            # "theta_max",
+            # "theta_min"
         ],
         q_target=q_rad,
         time=time,
@@ -215,7 +230,7 @@ def main(plot=True):
 
     ocp.add_plot_penalty(CostType.ALL)
     sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _linear_solver="ma57"))
-    sol.graphs(show_bounds=True)
+    # sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
     for key, value in identified_parameters.items():
