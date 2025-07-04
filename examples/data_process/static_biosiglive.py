@@ -87,14 +87,14 @@ def load_model(model_path):
 
     return model
 
-def load_data(data_path):
+def load_data(data_path, freq_stim):
     current_file_dir = Path(__file__).parent
     converter = C3dToForce(
         c3d_path=data_path,
         calibration_matrix_path="/home/mickaelbegon/Documents/Stage_Florine/matrix.txt",
         saving_pickle_path=f"{current_file_dir}/essai1_florine_force_biceps.pkl",
         frequency_acquisition=10000,
-        frequency_stimulation=50,
+        frequency_stimulation=freq_stim,
         rest_time=1,
         model_path=f"{current_file_dir}/../model_msk/simplified_UL_Seth.bioMod",
         elbow_angle=90,
@@ -137,12 +137,12 @@ def save_in_pkl(data, file_path):
         pickle.dump(data, f)
 
 
-def get_muscles_forces(p_n, data_path, biomodel_path, save=True):
+def get_muscles_forces(p_n, data_path, biomodel_path, freq_stim, save=True):
     current_file_dir = Path(__file__).parent
     whole_biomodel_path = "/home/mickaelbegon/Documents/Stage_Florine/modelScaled/" + biomodel_path
     model = load_model(whole_biomodel_path)
     whole_data_path = "/home/mickaelbegon/Documents/Stage_Florine/Data/" + data_path
-    data_dict = load_data(whole_data_path)
+    data_dict = load_data(whole_data_path, freq_stim)
     time = data_dict["time"]
     stim_time = data_dict["stim_time"]
 
@@ -170,6 +170,8 @@ def get_muscles_forces(p_n, data_path, biomodel_path, save=True):
         force_bicshort.append(act[1][i] * max_forces[1])
         force_biclong.append(act[0][i] * max_forces[0])
 
+    force_biclong = slicing(force_biclong, time)
+    force_bicshort = slicing(force_bicshort, time)
 
     dict = {"time": time, "stim_time": stim_time, "force_biclong": force_biclong, "force_bicshort": force_bicshort, "tau_list": tau_list, "act": act, "res": res}
     if save:
@@ -201,12 +203,12 @@ def auto_process(p_n_list, save=True, plot=False):
             data_path = "P" + p_nb + "/p" + p_nb + "_force_" + str(freq_list[i]) + "Hz_" + str(seeds_list[i]) + ".c3d"
             print(data_path)
             model_path = "p" + p_nb + "_scaling_scaled.bioMod"
-            dict = get_muscles_forces(p_n=p_n, data_path=data_path, biomodel_path=model_path, save=save)
+            dict = get_muscles_forces(p_n=p_n, data_path=data_path, biomodel_path=model_path, freq_stim=freq_list[i], save=save)
             if plot:
                 time = dict["time"]
                 stim_time = dict["stim_time"]
-                force_biclong = slicing(dict["force_biclong"], time)
-                force_bicshort = slicing(dict["force_bicshort"], time)
+                force_biclong = dict["force_biclong"]
+                force_bicshort = dict["force_bicshort"]
 
                 for j in range(len(time)):
                     if j==0:
@@ -217,12 +219,40 @@ def auto_process(p_n_list, save=True, plot=False):
                         plt.plot(time[j], force_biclong[j], color="blue")
                         plt.plot(time[j], force_bicshort[j], color="orange")
                         plt.scatter(stim_time[j], [0] * len(stim_time[j]), color="green")
-                plt.title(f"Participant {p_n} - Forces")
+                plt.title(f"Participant {p_n} - Freq {freq_list[i]}Hz - Seed {seeds_list[i]}")
                 plt.xlabel("Time (s)")
                 plt.ylabel("Force (N)")
                 plt.legend()
                 plt.show()
 
+def check_data(p_n_list):
+    p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
+    for p_n in p_n_list:
+        freq_str = p_data.iloc[p_n - 1]["freq_force"]
+        freq_list = ast.literal_eval(freq_str)
+        seeds_str = p_data.iloc[p_n - 1]["seed_force"]
+        seeds_list = ast.literal_eval(seeds_str)
+
+        for i in range(len(freq_list)):
+            p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+            current_file_dir = Path(__file__).parent
+            pickle_path = f"{current_file_dir}/pkl_files/p{p_nb}_force_{freq_list[i]}Hz_{seeds_list[i]}.pkl"
+            with open(pickle_path, "rb") as f:
+                data = pickle.load(f)
+            for j in range(len(data["time"])):
+                if j==0:
+                    plt.plot(data["time"][j], data["force_biclong"][j], label="Force BIC Long", color="blue")
+                    plt.plot(data["time"][j], data["force_bicshort"][j], label="Force BIC Short", color="orange")
+                    plt.scatter(data["stim_time"][j], [0] * len(data["stim_time"][j]), color="green", label="Stimulations")
+                else:
+                    plt.plot(data["time"][j], data["force_biclong"][j], color="blue")
+                    plt.plot(data["time"][j], data["force_bicshort"][j], color="orange")
+                    plt.scatter(data["stim_time"][j], [0] * len(data["stim_time"][j]), color="green")
+            plt.title(f"Participant {p_n} - Freq {freq_list[i]}Hz - Seed {seeds_list[i]}")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Force (N)")
+            plt.legend()
+            plt.show()
 
 def result(n):
     act_n, res_n, tau_n = n_iter(n)
@@ -256,4 +286,5 @@ def result(n):
     plt.show()
 
 if __name__ == "__main__":
-    auto_process([5], save=False, plot=True)
+    #auto_process([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], save=True, plot=False)
+    check_data([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
