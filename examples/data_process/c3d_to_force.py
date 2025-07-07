@@ -318,18 +318,18 @@ class C3dToForce:
                 self.sliced_data[i][j] = (
                     np.array(self.sliced_data[i][j]) - self.sliced_data[i][j][0]
                 )
-                for k, val in enumerate(self.sliced_data[i][j][1:]):
+                for k, val in enumerate(self.sliced_data[i][j][1000:]): #in case first values are negative
                     if val <= 0:
                         self.sliced_data[i][j][k + 1 :] = 0
                         break
                 if np.all(self.sliced_data[i][j][1:] > 0):
                     derivative = np.diff(self.sliced_data[i][j])
                     drop_detected = False
-                    for k in range(len(derivative) - 1):
-                        if not drop_detected and derivative[k] <= -0.01:
+                    for l in range(len(derivative) - 1):
+                        if not drop_detected and derivative[l] <= -0.01:
                             drop_detected = True
-                        elif drop_detected and derivative[k + 1] >= 0:
-                            self.sliced_data[i][j][k + 1 :] = 0
+                        elif drop_detected and derivative[l + 1] >= 0:
+                            self.sliced_data[i][j][l + 1 :] = 0
                             break
 
     def get_stimulation(self, time, stimulation_signal):
@@ -542,9 +542,9 @@ class C3dToForce:
         # Slice the data from 6D file
         self.slice_data(time=self.time, data=self.filtered_6d_force, stimulation_index=peaks)
 
-        #for j in range(len(self.sliced_time)):
+        # for j in range(len(self.sliced_time)):
         #    plt.plot(self.sliced_time[j], self.sliced_data[0][j])
-        #plt.show()
+        # plt.show()
 
         # Setting to zero each slice
         self.set_to_zero_slice()
@@ -699,7 +699,7 @@ class C3dToForce:
 
 if __name__ == "__main__":
     force_converter = C3dToForce(
-        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\avec_stim_ergo.c3d",
+        c3d_path="/home/mickaelbegon/Documents/Stage_Florine/Data/P11/p11_force_20Hz_29.c3d",
         calibration_matrix_path="matrix.txt",
         saving_pickle_path="test.pkl",
         frequency_acquisition=10000,
@@ -714,60 +714,25 @@ if __name__ == "__main__":
     force_converter.get_data_at_handle()
     data_stim = force_converter.filtered_6d_force
 
-
-
-    force_converter = C3dToForce(
-        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\sans_stim.c3d",
-        calibration_matrix_path="matrix.txt",
-        saving_pickle_path="test.pkl",
-        frequency_acquisition=10000,
-        frequency_stimulation=20,
-        rest_time=1,)
-
-    force_converter.get_data_at_handle()
-    data_sans_stim = force_converter.filtered_6d_force
-
-    force_converter = C3dToForce(
-        c3d_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\CollecteDeDonnees\\test_force\\sans_stim_int.c3d",
-        calibration_matrix_path="matrix.txt",
-        saving_pickle_path="test.pkl",
-        frequency_acquisition=10000,
-        frequency_stimulation=20,
-        rest_time=1, )
-
-    force_converter.get_data_at_handle()
-    data_sans_stim_int = force_converter.filtered_6d_force
-
-    fig, axs = plt.subplots(2, 3, figsize=(10, 15))
-    axs[0, 0].plot(data_stim[0], label='avec stim')
-    axs[0, 0].plot(data_sans_stim[0], label='sans stim')
-    axs[0, 0].plot(data_sans_stim_int[0], label='sans stim - int')
-    axs[0, 0].legend()
-    axs[0, 0].set_title('x')
-    axs[0, 1].plot(data_stim[1], label='avec stim')
-    axs[0, 1].plot(data_sans_stim[1], label='sans stim')
-    axs[0, 1].plot(data_sans_stim_int[1], label='sans stim - int')
-    axs[0, 1].legend()
-    axs[0, 1].set_title('y')
-    axs[0, 2].plot(data_stim[2], label='avec stim')
-    axs[0, 2].plot(data_sans_stim[2], label='sans stim')
-    axs[0, 2].plot(data_sans_stim_int[2], label='sans stim - int')
-    axs[0, 2].legend()
-    axs[0, 2].set_title('z')
-    axs[1, 0].plot(data_stim[3], label='avec stim')
-    axs[1, 0].plot(data_sans_stim[3], label='sans stim')
-    axs[1, 0].plot(data_sans_stim_int[3], label='sans stim - int')
-    axs[1, 0].legend()
-    axs[1, 0].set_title('mx')
-    axs[1, 1].plot(data_stim[4], label='avec stim')
-    axs[1, 1].plot(data_sans_stim[4], label='sans stim')
-    axs[1, 1].plot(data_sans_stim_int[4], label='sans stim - int')
-    axs[1, 1].legend()
-    axs[1, 1].set_title('my')
-    axs[1, 2].plot(data_stim[5], label='avec stim')
-    axs[1, 2].plot(data_sans_stim[5], label='sans stim')
-    axs[1, 2].plot(data_sans_stim_int[5], label='sans stim - int')
-    axs[1, 2].legend()
-    axs[1, 2].set_title('mz')
+    plt.plot(data_stim[0], label="x", color="blue")
+    plt.plot(data_stim[1], label="y", color="orange")
+    plt.plot(data_stim[2], label="z", color="red")
+    plt.legend()
     plt.show()
+
+    handle_data = force_converter.handle_dictionary
+    time = handle_data["time"]
+    stim_time = handle_data["stim_time"]
+    x = handle_data["x"]
+    y = handle_data["y"]
+    z = handle_data["z"]
+    for i in range(len(x)):
+        plt.plot(time[i], x[i], label="x", color="blue")
+        plt.plot(time[i], y[i], label="y", color="orange")
+        plt.plot(time[i], z[i], label="z", color="red")
+        plt.scatter(stim_time[i], [0] * len(stim_time[i]), color="green", label="Stimulation")
+    plt.legend()
+    plt.show()
+
+
 

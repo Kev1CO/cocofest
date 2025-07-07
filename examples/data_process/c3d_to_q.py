@@ -287,7 +287,7 @@ class C3dToQ:
                 #last = peaks_index[i + 1] - 1
 
             first = int(first * self.frequency_acquisition / self.frequency_acquisition_stim)
-            last = int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
+            last = first + 2 * self.frequency_acquisition if last == -1 else int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
 
             sliced_time.append(self.time[first:last])
             sliced_data.append(data[first:last])
@@ -345,14 +345,14 @@ class C3dToQ:
     def get_sliced_time_Q_rad(self):
         Q_rad = self._get_q()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
-        sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
+        #sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
         dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
         return dictionary
 
     def get_sliced_time_Q_deg(self):
         Q_deg = self.get_q_deg()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_deg)
-        sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
+        #sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
         dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
         return dictionary
 
