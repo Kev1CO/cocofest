@@ -147,70 +147,79 @@ def get_pickle_paths_from_participant(p_n):
 
     return pickle_path_list, data
 
-def main(plot=True, p_n_list=None):
+def optim(pickle_path, param, p_n, i, plot=True, save=True):
+    n_sep = 0
+    data_train, data_check = separate_trains(pickle_path, n_sep)
+    stim_time, time = set_time_continuity(data_train["stim_time"], data_train["time"])
+    time = np.concatenate(time)
+
+    force_biclong = np.concatenate(data_train["force_biclong"])
+    force_bicshort = np.concatenate(data_train["force_bicshort"])
+    tracked_data_biclong = {"time": time, "force": force_biclong}
+    tracked_data_bicshort = {"time": time, "force": force_bicshort}
+
+    final_time = np.round(time[-1], 2)
+
+    # pulse width values
+    pulse_width_path = "../data_process/seeds_pulse_width.pkl"
+    with open(pulse_width_path, "rb") as f:
+        pulse_width_dict = pickle.load(f)
+    pulse_width_values = pulse_width_dict[param["seeds"][i]]
+    pulse_width_values = list(np.array(pulse_width_values) / 1e6)
+    pulse_width_values_train = pulse_width_values[:n_sep] + pulse_width_values[n_sep + 1:]
+    for j in range(len(pulse_width_values_train)):
+        pulse_width_values_train[j] = [pulse_width_values_train[j]] * len(stim_time[j])
+    pulse_width_values_train = np.concatenate(pulse_width_values_train)
+    pulse_width_values_check = pulse_width_values[n_sep]
+
+    stim_time = np.concatenate(stim_time)
+    stim_time = list(np.round(stim_time, 2))
+    model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
+
+    ocp = prepare_ocp(
+        model,
+        final_time,
+        pulse_width_values_train,
+        tracked_data=tracked_data_biclong,
+        stim_time=stim_time,
+        key_parameter_to_identify=[
+            "km_rest",
+            "tau1_rest",
+            "tau2",
+            "pd0",
+            "pdt",
+            "a_scale",
+        ],
+    )
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000))
+
+    sol_time = sol.stepwise_time(to_merge=SolutionMerge.NODES).T[0]
+    sol_force = sol.stepwise_states(to_merge=SolutionMerge.NODES)["F"][0]
+    for key, value in sol.parameters.items():
+        param[key] = value
+    solution = {"time": sol_time, "force": sol_force, "parameters": param}
+
+    if save:
+        saving_pkl_path = ""
+        with open(saving_pkl_path, "wb") as f:
+            pickle.dump(solution, f)
+
+    if plot:
+
+        FES_plot(data=sol).plot(
+            title=f"Identification of experimetal force - Participant {p_n} - Freq {param['freq'][i]}Hz - Seed {param['seeds'][i]}",
+            tracked_data=tracked_data_biclong,
+            show_bounds=False,
+            show_stim=True,
+            stim_time=stim_time,
+            # exp_data=True,
+        )
+
+def main(plot=True, p_n_list=None, save=False):
     for p_n in p_n_list:
         pickle_path_list, param = get_pickle_paths_from_participant(p_n)
         for i, pickle_path in enumerate(pickle_path_list):
-            n_sep = 0
-            data_train, data_check = separate_trains(pickle_path, n_sep)
-            stim_time, time = set_time_continuity(data_train["stim_time"], data_train["time"])
-            time = np.concatenate(time)
-
-            force_biclong = np.concatenate(data_train["force_biclong"])
-            force_bicshort = np.concatenate(data_train["force_bicshort"])
-            tracked_data_biclong = {"time": time, "force": force_biclong}
-            tracked_data_bicshort = {"time": time, "force": force_bicshort}
-
-            final_time = np.round(time[-1], 2)
-
-            # pulse width values
-            pulse_width_path = "../data_process/seeds_pulse_width.pkl"
-            with open(pulse_width_path, "rb") as f:
-                pulse_width_dict = pickle.load(f)
-            pulse_width_values = pulse_width_dict[param["seeds"][i]]
-            pulse_width_values = list(np.array(pulse_width_values)/1e6)
-            pulse_width_values_train = pulse_width_values[:n_sep] + pulse_width_values[n_sep+1:]
-            for j in range(len(pulse_width_values_train)):
-                pulse_width_values_train[j] = [pulse_width_values_train[j]] * len(stim_time[j])
-            pulse_width_values_train = np.concatenate(pulse_width_values_train)
-            pulse_width_values_check = pulse_width_values[n_sep]
-
-            stim_time = np.concatenate(stim_time)
-            stim_time = list(np.round(stim_time, 2))
-            model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
-
-            ocp = prepare_ocp(
-                model,
-                final_time,
-                pulse_width_values_train,
-                tracked_data=tracked_data_biclong,
-                stim_time=stim_time,
-                key_parameter_to_identify=[
-                    "km_rest",
-                    "tau1_rest",
-                    "tau2",
-                    "pd0",
-                    "pdt",
-                    "a_scale",
-                ],
-            )
-            sol = ocp.solve(Solver.IPOPT(_max_iter=1000))
-
-            sol_time = sol.stepwise_time(to_merge=SolutionMerge.NODES).T[0]
-            sol_force = sol.stepwise_states(to_merge=SolutionMerge.NODES)["F"][0]
-
-            if plot:
-                default_model = DingModelPulseWidthFrequency()
-
-                FES_plot(data=sol).plot(
-                    title=f"Identification of experimetal force - Participant {p_n} - Freq {param['freq'][i]}Hz - Seed {param['seeds'][i]}",
-                    tracked_data=tracked_data_biclong,
-                    default_model=default_model,
-                    show_bounds=False,
-                    show_stim=True,
-                    stim_time=stim_time
-                )
-
+            optim(pickle_path, param, p_n, i, plot=plot, save=save)
 
 if __name__ == "__main__":
-    main(plot=True, p_n_list=[1])
+    main(plot=True, p_n_list=[2], save=False)
