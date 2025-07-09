@@ -8,6 +8,7 @@ from pathlib import Path
 import pickle
 import pandas as pd
 import ast
+from scipy.integrate import quad
 
 from bioptim import SolutionMerge, OdeSolver, OptimalControlProgram, ObjectiveFcn, Node, ControlType, ObjectiveList, \
     Solver
@@ -196,7 +197,7 @@ def optim(p_n, muscle_name, plot=True, save=True):
     data_train = {"force":force, "stim_time":stim_time, "time":time, "pulse_width":pulse_width}
 
     stim_time_test, time_test = set_time_continuity(stim_time_test_list, time_test_list)
-    data_test = {"force":np.concatenate(force_test_list), "stim_time": stim_time_test, "time": time_test, "pulse_width":np.concatenate(pulse_width_test_list)}
+    data_test = {"force":np.concatenate(force_test_list), "stim_time": np.concatenate(stim_time_test), "time": np.concatenate(time_test), "pulse_width":np.concatenate(pulse_width_test_list)}
 
     tracked_data = {"time": time, "force": force}
 
@@ -251,7 +252,7 @@ def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False):
         for muscle_name in muscle_name_list:
             optim(p_n, muscle_name=muscle_name, plot=plot, save=save)
 
-def check_data(p_n_list, muscle_name_list):
+def check_data_id(p_n_list, muscle_name_list):
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
@@ -273,7 +274,74 @@ def check_data(p_n_list, muscle_name_list):
             plt.legend()
             plt.show()
 
+def get_force_from_id_param(param_dict:dict, data_test:dict):
+    stim_time = data_test["stim_time"]
+    stim_time = list(np.round(stim_time, 2))
+    model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
+    model.a_scale = param_dict["a_scale"]
+    model.km_rest = param_dict["km_rest"]
+    model.tau1_rest = param_dict["tau1_rest"]
+    model.tau2 = param_dict["tau2"]
+    model.pdt = param_dict["pdt"]
+    model.pd0 = param_dict["pd0"]
+
+    fes_parameters = {"model": model, "pulse_width": list(data_test["pulse_width"])}
+
+    final_time = np.round(data_test["time"][-1], 2)
+    ivp_parameters = {
+        "final_time": final_time,
+        "use_sx": True,
+        "ode_solver": OdeSolver.RK4(n_integration_steps=10),
+    }
+    ivp = IvpFes(fes_parameters, ivp_parameters)
+
+    result, time = ivp.integrate()
+    data = {
+        "time": time,
+        "force": result["F"][0],
+        "stim_time": stim_time,
+    }
+    return data
+
+def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False):
+    for p_n in p_n_list:
+        for muscle_name in muscle_name_list:
+            p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+            current_file_dir = Path(__file__).parent
+            pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}.pkl"
+            with open(pickle_path, "rb") as f:
+                data = pickle.load(f)
+            param_dict = data["parameters"]
+            data_test = data["data_test"]
+            generated_data = get_force_from_id_param(param_dict, data_test)
+
+            exp_data = np.interp(generated_data["time"], data_test["time"], data_test["force"])
+            area= np.trapezoid(abs(exp_data-generated_data["force"]), generated_data["time"])
+            area = np.round(area, 2)
+
+            print(f"Gap between experimental and simulated force : {area}")
+
+            if plot:
+                plt.plot(data_test["time"], data_test["force"], label="experimental", color="blue")
+                plt.plot(generated_data["time"], generated_data["force"], label="simulated", color="red")
+                data_stim = np.interp(data_test["stim_time"], data_test["time"], data_test["force"])
+                plt.scatter(data_test["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
+                plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name}")
+                plt.xlabel("Time (s)")
+                plt.ylabel("Force (N)")
+                plt.legend()
+                plt.show()
+
+            if save:
+                p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+                current_file_dir = Path(__file__).parent
+                saving_pkl_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}.pkl"
+                dict = {"generated_data": generated_data, "data_test": data_test, "gap": area}
+                with open(saving_pkl_path, "wb") as f:
+                    pickle.dump(dict, f)
+
 
 if __name__ == "__main__":
     #id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
-    check_data(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
+    #check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
+    data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True)
