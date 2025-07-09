@@ -8,7 +8,6 @@ from pathlib import Path
 import pickle
 import pandas as pd
 import ast
-from scipy.integrate import quad
 
 from bioptim import SolutionMerge, OdeSolver, OptimalControlProgram, ObjectiveFcn, Node, ControlType, ObjectiveList, \
     Solver
@@ -340,8 +339,30 @@ def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False):
                 with open(saving_pkl_path, "wb") as f:
                     pickle.dump(dict, f)
 
+def check_data_gap(p_n_list, muscle_name_list):
+    for p_n in p_n_list:
+        for muscle_name in muscle_name_list:
+            p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+            current_file_dir = Path(__file__).parent
+            pickle_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}.pkl"
+            with open(pickle_path, "rb") as f:
+                data = pickle.load(f)
+            area = data["gap"]
+            print(f"Gap between experimental and simulated force : {area}")
+            plt.plot(data["data_test"]["time"], data["data_test"]["force"], label="experimental", color="blue")
+            plt.plot(data["generated_data"]["time"], data["generated_data"]["force"], label="simulated", color="red")
+            data_stim = np.interp(data["data_test"]["stim_time"], data["data_test"]["time"], data["data_test"]["force"])
+            plt.scatter(data["data_test"]["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
+            plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name}")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Force (N)")
+            plt.legend()
+            plt.show()
+
+
 
 if __name__ == "__main__":
     #id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
     #check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
-    data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True)
+    #data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
+    check_data_gap(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
