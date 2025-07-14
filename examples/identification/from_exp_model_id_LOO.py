@@ -24,8 +24,8 @@ from cocofest.identification.identification_method import DataExtraction
 
 def set_time_to_zero(stim_time, time_list):
     first_stim = stim_time[0]
-    if first_stim > time_list[0]:
-        raise ValueError("Time list should begin at the first stimulation")
+    #if first_stim > time_list[0]:
+        #raise ValueError("Time list should begin at the first stimulation")
     stim_time = list(np.array(stim_time) - first_stim)
     time_list = list(np.array(time_list) - first_stim)
 
@@ -145,7 +145,7 @@ def get_pickle_paths_from_participant(p_n):
 
     return pickle_path_list, data
 
-def optim(p_n, muscle_name, plot=True, save=True):
+def optim_all_concat(p_n, muscle_name, plot=True, save=True):
     pickle_path_list, param = get_pickle_paths_from_participant(p_n)
     force_train_list = []
     time_train_list = []
@@ -220,7 +220,7 @@ def optim(p_n, muscle_name, plot=True, save=True):
             "a_scale",
         ],
     )
-    sol = ocp.solve(Solver.IPOPT(_max_iter=1000))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=10000))
 
     sol_time = sol.stepwise_time(to_merge=SolutionMerge.NODES).T[0]
     sol_force = sol.stepwise_states(to_merge=SolutionMerge.NODES)["F"][0]
@@ -246,32 +246,146 @@ def optim(p_n, muscle_name, plot=True, save=True):
             # exp_data=True,
         )
 
-def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False):
+def optim_per_freq(p_n, muscle_name, plot=True, save=True):
+    pickle_path_list, param = get_pickle_paths_from_participant(p_n)
+
+    for i, pickle_path in enumerate(pickle_path_list):
+        n_sep = 0
+        data_train, data_test = separate_trains(pickle_path, n_sep)
+        stim_time, time = set_time_continuity(data_train["stim_time"], data_train["time"])
+
+        # pulse width values
+        pulse_width_path = "../data_process/seeds_pulse_width.pkl"
+        with open(pulse_width_path, "rb") as f:
+            pulse_width_dict = pickle.load(f)
+        pulse_width_values = pulse_width_dict[param["seeds"][i]]
+        pulse_width_values = list(np.array(pulse_width_values) / 1e6) #convert into s
+        pulse_width_values_train = pulse_width_values[:n_sep] + pulse_width_values[n_sep + 1:]
+        for j in range(len(pulse_width_values_train)):
+            pulse_width_values_train[j] = [pulse_width_values_train[j]] * len(stim_time[j])
+        pulse_width_values_train = np.concatenate(pulse_width_values_train)
+        pulse_width_values_test = [pulse_width_values[n_sep]] * len(data_test["stim_time"])
+
+        time = np.concatenate(time)
+        force = np.concatenate(data_train[f"force_{muscle_name}"])
+        stim_time = np.concatenate(stim_time)
+
+
+        data_train = {"force":force, "stim_time":stim_time, "time":time, "pulse_width":pulse_width_values_train}
+
+        stim_time_test, time_test = set_time_to_zero(data_test["stim_time"], data_test["time"])
+        data_test = {"force":data_test[f"force_{muscle_name}"], "stim_time": stim_time_test, "time": time_test, "pulse_width":pulse_width_values_test}
+
+        tracked_data = {"time": time, "force": force}
+
+        stim_time = list(np.round(stim_time, 2))
+        model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
+
+        final_time = np.round(time[-1], 2)
+
+        ocp = prepare_ocp(
+            model,
+            final_time,
+            pulse_width_values_train,
+            tracked_data=tracked_data,
+            stim_time=stim_time,
+            key_parameter_to_identify=[
+                "km_rest",
+                "tau1_rest",
+                "tau2",
+                "pd0",
+                "pdt",
+                "a_scale",
+            ],
+        )
+        sol = ocp.solve(Solver.IPOPT(_max_iter=10000))
+
+        sol_time = sol.stepwise_time(to_merge=SolutionMerge.NODES).T[0]
+        sol_force = sol.stepwise_states(to_merge=SolutionMerge.NODES)["F"][0]
+        parameters = {}
+        for key, value in sol.parameters.items():
+            parameters[key] = value
+        parameters["freq"] = param["freq"][i]
+        freq = parameters["freq"]
+        parameters["seeds"] = param["seeds"][i]
+        seed = parameters["seeds"]
+        pulse_width_plot = pulse_width_dict[seed][:n_sep] + pulse_width_dict[seed][n_sep + 1:]
+        pulse_width_plot = [int(x) for x in pulse_width_plot]
+        parameters["pulse_width"] = pulse_width_plot
+        solution = {"time": sol_time, "force": sol_force, "parameters": parameters, "data_test": data_test, "data_train":data_train, "muscle_name":muscle_name}
+
+        if save:
+            p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+            current_file_dir = Path(__file__).parent
+            saving_pkl_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq}_Hz_{seed}.pkl"
+            with open(saving_pkl_path, "wb") as f:
+                pickle.dump(solution, f)
+
+        if plot:
+            FES_plot(data=sol).plot(
+                title=f"Identification of experimental force - Participant {p_n} - Muscle {muscle_name} - Freq {freq} - Pulse Width values {pulse_width_plot}",
+                tracked_data=tracked_data,
+                show_bounds=False,
+                show_stim=True,
+                stim_time=stim_time,
+                # exp_data=True,
+            )
+
+def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False, per_freq=False):
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
-            optim(p_n, muscle_name=muscle_name, plot=plot, save=save)
+            if per_freq:
+                optim_per_freq(p_n, muscle_name=muscle_name, plot=plot, save=save)
+            else:
+                optim_all_concat(p_n, muscle_name=muscle_name, plot=plot, save=save)
 
-def check_data_id(p_n_list, muscle_name_list):
+def check_data_id(p_n_list, muscle_name_list, per_freq=False):
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
             current_file_dir = Path(__file__).parent
-            pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}.pkl"
-            with open(pickle_path, "rb") as f:
-                data = pickle.load(f)
-            param_dict = data["parameters"]
-            print("Identified parameters :")
-            for key in param_dict.keys():
-                print(f"{key} : {param_dict[key]}")
-            plt.plot(data["time"], data["force"], label="identified", color="red")
-            plt.plot(data["data_train"]["time"], data["data_train"]["force"], label="tracked", color="blue")
-            data_stim = np.interp(data["data_train"]["stim_time"], data["data_train"]["time"], data["data_train"]["force"])
-            plt.scatter(data["data_train"]["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
-            plt.title(f"Identification from experimental force - Participant {p_nb} - Muscle {muscle_name}")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Force (N)")
-            plt.legend()
-            plt.show()
+            if per_freq :
+                p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
+                freq_str = p_data.iloc[p_n - 1]["freq_force"]
+                freq_list = ast.literal_eval(freq_str)
+                seeds_str = p_data.iloc[p_n - 1]["seed_force"]
+                seeds_list = ast.literal_eval(seeds_str)
+
+                for i in range(len(freq_list)):
+                    pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq_list[i]}_Hz_{seeds_list[i]}.pkl"
+                    with open(pickle_path, "rb") as f:
+                        data = pickle.load(f)
+                    param_dict = data["parameters"]
+                    pulse_width = param_dict["pulse_width"]
+                    print("Identified parameters :")
+                    for key in param_dict.keys():
+                        print(f"{key} : {param_dict[key]}")
+                    plt.plot(data["time"], data["force"], label="identified", color="red")
+                    plt.plot(data["data_train"]["time"], data["data_train"]["force"], label="tracked", color="blue")
+                    data_stim = np.interp(data["data_train"]["stim_time"], data["data_train"]["time"],data["data_train"]["force"])
+                    plt.scatter(data["data_train"]["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
+                    plt.title(f"Identification from experimental force - Participant {p_nb} - Muscle {muscle_name} - Frequency {freq_list[i]} - Pulse Width values {pulse_width}")
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("Force (N)")
+                    plt.legend()
+                    plt.show()
+            else:
+                pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}.pkl"
+                with open(pickle_path, "rb") as f:
+                    data = pickle.load(f)
+                param_dict = data["parameters"]
+                print("Identified parameters :")
+                for key in param_dict.keys():
+                    print(f"{key} : {param_dict[key]}")
+                plt.plot(data["time"], data["force"], label="identified", color="red")
+                plt.plot(data["data_train"]["time"], data["data_train"]["force"], label="tracked", color="blue")
+                data_stim = np.interp(data["data_train"]["stim_time"], data["data_train"]["time"], data["data_train"]["force"])
+                plt.scatter(data["data_train"]["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
+                plt.title(f"Identification from experimental force - Participant {p_nb} - Muscle {muscle_name}")
+                plt.xlabel("Time (s)")
+                plt.ylabel("Force (N)")
+                plt.legend()
+                plt.show()
 
 def get_force_from_id_param(param_dict:dict, data_test:dict):
     stim_time = data_test["stim_time"]
@@ -362,7 +476,7 @@ def check_data_gap(p_n_list, muscle_name_list):
 
 
 if __name__ == "__main__":
-    #id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
-    #check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
-    #data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
-    check_data_gap(p_n_list=[5], muscle_name_list=["biclong", "bicshort"])
+    id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
+    check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
+    #data_gap_auto(p_n_list=[1], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
+    #check_data_gap(p_n_list=[3], muscle_name_list=["biclong", "bicshort"])
