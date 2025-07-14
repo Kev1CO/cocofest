@@ -317,7 +317,7 @@ def optim_per_freq(p_n, muscle_name, plot=True, save=True):
         if save:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
             current_file_dir = Path(__file__).parent
-            saving_pkl_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq}_Hz_{seed}.pkl"
+            saving_pkl_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq}Hz_{seed}.pkl"
             with open(saving_pkl_path, "wb") as f:
                 pickle.dump(solution, f)
 
@@ -352,7 +352,7 @@ def check_data_id(p_n_list, muscle_name_list, per_freq=False):
                 seeds_list = ast.literal_eval(seeds_str)
 
                 for i in range(len(freq_list)):
-                    pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq_list[i]}_Hz_{seeds_list[i]}.pkl"
+                    pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}_{freq_list[i]}Hz_{seeds_list[i]}.pkl"
                     with open(pickle_path, "rb") as f:
                         data = pickle.load(f)
                     param_dict = data["parameters"]
@@ -416,53 +416,109 @@ def get_force_from_id_param(param_dict:dict, data_test:dict):
     }
     return data
 
-def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False):
+def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
+    for p_n in p_n_list:
+        p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
+        for muscle_name in muscle_name_list:
+            if per_freq:
+                p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
+                freq_str = p_data.iloc[p_n - 1]["freq_force"]
+                freq_list = ast.literal_eval(freq_str)
+                seeds_str = p_data.iloc[p_n - 1]["seed_force"]
+                seeds_list = ast.literal_eval(seeds_str)
+
+                for i in range(len(freq_list)):
+                    path = f"p{p_nb}_force_{muscle_name}_{freq_list[i]}Hz_{seeds_list[i]}"
+                    compute_out(p_nb=p_nb, muscle_name=muscle_name, path=path, save=save, plot=plot, per_freq=per_freq)
+            else:
+                path = f"p{p_nb}_force_{muscle_name}"
+                compute_out(p_nb=p_nb, muscle_name=muscle_name, path=path, save=save, plot=plot, per_freq=per_freq)
+
+
+def compute_out(p_nb, muscle_name, path, save, plot, per_freq):
+    current_file_dir = Path(__file__).parent
+    pickle_path = f"{current_file_dir}/id_force/{path}.pkl"
+    with open(pickle_path, "rb") as f:
+        data = pickle.load(f)
+    param_dict = data["parameters"]
+    data_test = data["data_test"]
+    generated_data = get_force_from_id_param(param_dict, data_test)
+
+    exp_data = np.interp(generated_data["time"], data_test["time"], data_test["force"])
+    rmse = np.sqrt(np.mean((exp_data - generated_data["force"]) ** 2))
+    mean_exp_data = np.mean(exp_data)
+    rmse_percent = (rmse / mean_exp_data) * 100
+    rmse = np.round(rmse, 2)
+    rmse_percent = np.round(rmse_percent, 2)
+
+    print(f"Root Mean Square Error : {rmse}")
+    print(f"Root Mean Square Error in % : {rmse_percent}%")
+
+    if plot:
+        plt.plot(data_test["time"], data_test["force"], label="experimental", color="blue")
+        plt.plot(generated_data["time"], generated_data["force"], label="simulated", color="red")
+        data_stim = np.interp(data_test["stim_time"], data_test["time"], data_test["force"])
+        plt.scatter(data_test["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
+        if per_freq:
+            freq = param_dict["freq"]
+            pulse_width = int(data_test["pulse_width"][0] * 1e6)
+            plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name} - Freq {freq} - Pulse Width values {pulse_width} µs")
+        else:
+            plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name}")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Force (N)")
+        plt.legend()
+        plt.show()
+
+    if save:
+        current_file_dir = Path(__file__).parent
+        saving_pkl_path = f"{current_file_dir}/force_test/{path}.pkl"
+        dict = {"generated_data": generated_data, "data_test": data_test, "rmse": rmse, "rmse%": rmse_percent}
+        with open(saving_pkl_path, "wb") as f:
+            pickle.dump(dict, f)
+
+def check_data_gap(p_n_list, muscle_name_list, per_freq=False):
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
             current_file_dir = Path(__file__).parent
-            pickle_path = f"{current_file_dir}/id_force/p{p_nb}_force_{muscle_name}.pkl"
+            if per_freq:
+                p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
+                freq_str = p_data.iloc[p_n - 1]["freq_force"]
+                freq_list = ast.literal_eval(freq_str)
+                seeds_str = p_data.iloc[p_n - 1]["seed_force"]
+                seeds_list = ast.literal_eval(seeds_str)
+
+                for i in range(len(freq_list)):
+                    pickle_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}_{freq_list[i]}Hz_{seeds_list[i]}.pkl"
+
+                    with open(pickle_path, "rb") as f:
+                        data = pickle.load(f)
+                    rmse = data["rmse"]
+                    rmse_percent = data["rmse%"]
+                    print(f"Root Mean Square Error : {rmse}")
+                    print(f"Root Mean Square Error in % : {rmse_percent}%")
+                    plt.plot(data["data_test"]["time"], data["data_test"]["force"], label="experimental", color="blue")
+                    plt.plot(data["generated_data"]["time"], data["generated_data"]["force"], label="simulated",
+                             color="red")
+                    data_stim = np.interp(data["data_test"]["stim_time"], data["data_test"]["time"],
+                                          data["data_test"]["force"])
+                    plt.scatter(data["data_test"]["stim_time"], data_stim, label="stimulations", color="green",
+                                alpha=0.5)
+                    plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name} - Freq {freq_list[i]}")
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("Force (N)")
+                    plt.legend()
+                    plt.show()
+            else:
+                pickle_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}.pkl"
+
             with open(pickle_path, "rb") as f:
                 data = pickle.load(f)
-            param_dict = data["parameters"]
-            data_test = data["data_test"]
-            generated_data = get_force_from_id_param(param_dict, data_test)
-
-            exp_data = np.interp(generated_data["time"], data_test["time"], data_test["force"])
-            area= np.trapezoid(abs(exp_data-generated_data["force"]), generated_data["time"])
-            area = np.round(area, 2)
-
-            print(f"Gap between experimental and simulated force : {area}")
-
-            if plot:
-                plt.plot(data_test["time"], data_test["force"], label="experimental", color="blue")
-                plt.plot(generated_data["time"], generated_data["force"], label="simulated", color="red")
-                data_stim = np.interp(data_test["stim_time"], data_test["time"], data_test["force"])
-                plt.scatter(data_test["stim_time"], data_stim, label="stimulations", color="green", alpha=0.5)
-                plt.title(f"Simulated force from identified parameters - Participant {p_nb} - Muscle {muscle_name}")
-                plt.xlabel("Time (s)")
-                plt.ylabel("Force (N)")
-                plt.legend()
-                plt.show()
-
-            if save:
-                p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
-                current_file_dir = Path(__file__).parent
-                saving_pkl_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}.pkl"
-                dict = {"generated_data": generated_data, "data_test": data_test, "gap": area}
-                with open(saving_pkl_path, "wb") as f:
-                    pickle.dump(dict, f)
-
-def check_data_gap(p_n_list, muscle_name_list):
-    for p_n in p_n_list:
-        for muscle_name in muscle_name_list:
-            p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
-            current_file_dir = Path(__file__).parent
-            pickle_path = f"{current_file_dir}/force_test/p{p_nb}_force_{muscle_name}.pkl"
-            with open(pickle_path, "rb") as f:
-                data = pickle.load(f)
-            area = data["gap"]
-            print(f"Gap between experimental and simulated force : {area}")
+            rmse = data["rmse"]
+            rmse_percent = data["rmse%"]
+            print(f"Root Mean Square Error : {rmse}")
+            print(f"Root Mean Square Error in % : {rmse_percent}%")
             plt.plot(data["data_test"]["time"], data["data_test"]["force"], label="experimental", color="blue")
             plt.plot(data["generated_data"]["time"], data["generated_data"]["force"], label="simulated", color="red")
             data_stim = np.interp(data["data_test"]["stim_time"], data["data_test"]["time"], data["data_test"]["force"])
@@ -476,7 +532,7 @@ def check_data_gap(p_n_list, muscle_name_list):
 
 
 if __name__ == "__main__":
-    id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
-    check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
-    #data_gap_auto(p_n_list=[1], muscle_name_list=["biclong", "bicshort"], plot=False, save=True)
-    #check_data_gap(p_n_list=[3], muscle_name_list=["biclong", "bicshort"])
+    #id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
+    #check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
+    #data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
+    check_data_gap(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
