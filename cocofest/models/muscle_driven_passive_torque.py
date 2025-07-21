@@ -213,12 +213,12 @@ class MuscleDrivenPassiveTorque:
              k2=parameters[1],
              k3=parameters[2],
              k4=parameters[3],
-             # kc1=parameters[4],
-             # kc2=parameters[5],
+             kc1=parameters[4],
+             kc2=parameters[5],
             # kc3=parameters[6],
             # kc4=parameters[7],
-            theta_max=parameters[4],
-            theta_min=parameters[5],
+            theta_max=parameters[6],
+            theta_min=parameters[7],
             theta=q,
              theta_dot=qdot) if with_passive_torque else tau
 
@@ -245,16 +245,25 @@ class MuscleDrivenPassiveTorque:
         return DynamicsEvaluation(dxdt=dxdt, defects=None)
 
     @staticmethod
-    def get_passive_torque(k1, k2, k3, k4, theta, theta_min, theta_max, theta_dot):
+    def get_passive_torque(k1, k2, k3, k4, kc1, kc2, theta, theta_min, theta_max, theta_dot):
         md = MuscleDrivenPassiveTorque()
+        def sigmoide(x):
+            return 1 / (1 + exp(-x))
         #c = - kc1 * np.exp(-kc2 * (theta - theta_min)) + kc3 * np.exp(kc4 * (theta - theta_max))
         c = 0.1
+        c = (sigmoide(-(theta - theta_min) / kc1) + sigmoide((theta - theta_max) / kc2))
         # theta_dot = if_else(theta_dot > 0, theta_dot, 0)  # Ensure that the velocity is positive
-        s = 1 / (1 + exp(-0.5*theta_dot))
-        passive_torque = k1 * exp(-k2 * (theta - theta_min)) * (1 - s) - k3 * exp(k4 * (theta - theta_max)) * s #- (c * theta_dot)
-        #k1 * exp(-k2 * (theta - theta_min)) * (1 - sign(theta_dot)) / 2 - k3 * exp(k4 * (theta - theta_max)) * (1 + sign(theta_dot)) / 2)
+        #s = 1 / (1 + exp(-(theta_dot)))
+        def relu_lisse(x, n=1, alpha=100):
+            return (1/alpha * np.log1p(np.exp(alpha * x)))**n
+        alpha = k3
+        n = k4
+        passive_torque = k1 * exp(-k2 * (theta - theta_min)) * sigmoide(-(theta - theta_min)) - c * theta_dot - k3 * exp(k4 * (theta - theta_max)) * sigmoide(theta - theta_max)
+        #k1 * relu_lisse(theta_min - theta, n=n, alpha=alpha) - k2 * relu_lisse(theta - theta_max, n=n, alpha=alpha) - c * theta_dot)
+        #(k1 * exp(-k2 * (theta - theta_min)) - k3 * exp(k4 * (theta - theta_max)) - (c * theta_dot))
+        #k1 * exp(-k2 * (theta - theta_min)) * (1 - s) - k3 * exp(k4 * (theta - theta_max)) * s - (c * theta_dot))
+        #(k1 * exp(-k2 * (theta - theta_min)) * (1 - sign(theta_dot)) / 2 - k3 * exp(k4 * (theta - theta_max)) * (1 + sign(theta_dot)) / 2 - (c * theta_dot))
         #if_else(theta_dot < 0, k1 * exp(-k2 * (theta - theta_min)), -k3 * exp(k4 * (theta - theta_max))) - (c * theta_dot))
-        #k1 * exp(-k2 * (theta - theta_min)) - k3 * exp(k4 * (theta - theta_max)) - (c * theta_dot)
         return passive_torque
 
     def set_k1(self, k1):

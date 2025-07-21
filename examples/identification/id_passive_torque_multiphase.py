@@ -56,93 +56,93 @@ def prepare_ocp(model_path,
     ):
     additional_key_settings = {
         "k1": {
-            "initial_guess": 1.29544904,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 6,  # 10,
+            "initial_guess": 1,
+            "min_bound": 0.001,
+            "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k1,
             "scaling": 1
         },
         "k2": {
-            "initial_guess": 0.1,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 6,  # 10,
+            "initial_guess": 1,
+            "min_bound": 0.001,
+            "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k2,
             "scaling": 1
         },
         "k3": {
-            "initial_guess": 0.26468047,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 6,  # 10,
+            "initial_guess": 1,
+            "min_bound": 0.001,
+            "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k3,
             "scaling": 1
         },
         "k4": {
-            "initial_guess": 5.8779871,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 6,  # 10,
+            "initial_guess": 1,
+            "min_bound": 0.001,
+            "max_bound": 100,
             "function": MuscleDrivenPassiveTorque.set_k4,
             "scaling": 1
         },
         "kc1": {
-            "initial_guess": 1,
-            "min_bound": 0.1,  # 1,
-            "max_bound": 10,  # 10,
+            "initial_guess": 0.1,
+            "min_bound": 0.01,
+            "max_bound": 2,
             "function": MuscleDrivenPassiveTorque.set_kc1,
             "scaling": 1
         },
         "kc2": {
-            "initial_guess": 1,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 6,  # 10,
+            "initial_guess": 0.1,
+            "min_bound": 0.01,
+            "max_bound": 2,
             "function": MuscleDrivenPassiveTorque.set_kc2,
             "scaling": 1
         },
         "kc3": {
             "initial_guess": 1,
-            "min_bound": 0.1,  # 1,
-            "max_bound": 10,  # 10,
+            "min_bound": 0.1,
+            "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_kc3,
             "scaling": 1
         },
         "kc4": {
             "initial_guess": 1,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 10,  # 10,
+            "min_bound": 0.01,
+            "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_kc4,
             "scaling": 1
         },
         "theta_c": {
             "initial_guess": 5,
-            "min_bound": 0.1,  # 1,
-            "max_bound": 100,  # 10,
+            "min_bound": 0.1,
+            "max_bound": 100,
             "function": MuscleDrivenPassiveTorque.set_theta_c,
             "scaling": 1
         },
         "theta_max": {
             "initial_guess": 5,
-            "min_bound": 2,  # 1,
-            "max_bound": 4,  # 10,
+            "min_bound": 2,
+            "max_bound": 4,
             "function": MuscleDrivenPassiveTorque.set_theta_max,
             "scaling": 1
         },
         "theta_min": {
             "initial_guess": 5,
-            "min_bound": 0,  # 1,
+            "min_bound": 0,
             "max_bound": 0.5,  #TODO:
             "function": MuscleDrivenPassiveTorque.set_theta_min,
             "scaling": 1
         },
         "e_min": {
             "initial_guess": 1,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 15,  # 15,
+            "min_bound": 0.01,
+            "max_bound": 15,
             "function": MuscleDrivenPassiveTorque.set_e_min,
             "scaling": 1
         },
         "e_max": {
             "initial_guess": 5,
-            "min_bound": 0.01,  # 1,
-            "max_bound": 5,  # 15,
+            "min_bound": 0.01,
+            "max_bound": 5,
             "function": MuscleDrivenPassiveTorque.set_e_max,
             "scaling": 1
         },
@@ -246,14 +246,14 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
     stim_time = data_low["stim_time"]
     q_rad, time_low = slicing(q_rad, time, stim_time)
 
-    q_target = q_rad + [data_up["q_rad"][0][100:]] + [data_up["q_rad"][1][100:]]
+    q_target = q_rad + [data_up["q_rad"][0]] + [data_up["q_rad"][1]]
 
     time_low = time_low
     time_low[0] = np.array(time_low[0]) - time_low[0][0]  # Start at 0
     for i in range(len(time_low) - 1):
         time_low[i+1] = time_low[i+1] + (time_low[i][-1] - time_low[i+1][0])
-    time_up = [np.array(data_up["time"][0][100:]) + (time_low[-1][-1] - data_up["time"][0][100])]
-    time_up += [np.array(data_up["time"][1][100:]) + (time_up[0][-1] - data_up["time"][1][100])]
+    time_up = [np.array(data_up["time"][0]) + (time_low[-1][-1] - data_up["time"][0][0])]
+    time_up += [np.array(data_up["time"][1]) + (time_up[0][-1] - data_up["time"][1][0])]
     time = time_low + time_up
 
     final_time = []
@@ -272,8 +272,8 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
             "k2",
             "k3",
             "k4",
-            # "kc1",
-            # "kc2",
+            "kc1",
+            "kc2",
             # "e_min",
             # "e_max",
             # "kc3",
@@ -286,7 +286,7 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
     )
 
     ocp.add_plot_penalty(CostType.ALL)
-    sol = ocp.solve(Solver.IPOPT(_max_iter=10000, _linear_solver="ma57"))
+    sol = ocp.solve(Solver.IPOPT(_max_iter=1000, _linear_solver="ma57"))
     sol.graphs(show_bounds=True)
     identified_parameters = sol.parameters
     print("Identified parameters:")
@@ -311,20 +311,20 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
         plt.show()
 
 if __name__ == "__main__":
-    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P05/p05_motion_50Hz_62.c3d")
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/Data/P05/p05_motion_50Hz_62.c3d")
     converter.frequency_stimulation = 50
     time = converter.get_time()
     q_rad = converter.get_q_rad()
     stim_time = converter.get_sliced_stim_time()["stim_time"]
     data_low = {"time": time, "q_rad": q_rad, "stim_time": stim_time}
 
-    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P05/p05_limit_upper.c3d")
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/Data/P05/p05_limit_upper.c3d")
     time = converter.get_time()
     q_rad = converter.get_q_rad()
 
     data_up = {"time": time, "q_rad": q_rad}
 
-    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/P05/p05_limit_upper1.c3d")
+    converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/Data/P05/p05_limit_upper1.c3d")
     time = converter.get_time()
     q_rad = converter.get_q_rad()
 

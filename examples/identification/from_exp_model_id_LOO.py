@@ -396,7 +396,7 @@ def get_force_from_id_param(param_dict:dict, data_test:dict):
     model.tau1_rest = param_dict["tau1_rest"]
     model.tau2 = param_dict["tau2"]
     model.pdt = param_dict["pdt"]
-    model.pd0 = param_dict["pd0"]
+    model.pd0 = min(param_dict["pd0"], 250 * 1e-6) #to make sure pulse width 250µs is possible
 
     fes_parameters = {"model": model, "pulse_width": list(data_test["pulse_width"])}
 
@@ -532,7 +532,7 @@ def check_data_gap(p_n_list, muscle_name_list, per_freq=False):
 
 
 if __name__ == "__main__":
-    #id_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
-    #check_data_id(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
-    #data_gap_auto(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], plot=True, save=True, per_freq=True)
-    check_data_gap(p_n_list=[5], muscle_name_list=["biclong", "bicshort"], per_freq=True)
+    #id_auto(p_n_list=[1], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=True)
+    #check_data_id(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)
+    #data_gap_auto(p_n_list=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=False)
+    check_data_gap(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)

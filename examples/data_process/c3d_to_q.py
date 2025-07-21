@@ -304,9 +304,9 @@ class C3dToQ:
         sliced_stim_time[0] = np.array(sliced_stim_time[0]) - sliced_time[0][0]
         sliced_time[0] = np.array(sliced_time[0]) - sliced_time[0][0]
 
-        # for i in range(len(sliced_time) - 1):
-        #     sliced_stim_time[i + 1] = np.array(sliced_stim_time[i + 1]) - (sliced_time[i + 1][0] - sliced_time[i][-1])
-        #     sliced_time[i + 1] = np.array(sliced_time[i + 1]) - (sliced_time[i+1][0] - sliced_time[i][-1])
+        for i in range(len(sliced_time) - 1):
+            sliced_stim_time[i + 1] = np.array(sliced_stim_time[i + 1]) - (sliced_time[i + 1][0] - sliced_time[i][-1])
+            sliced_time[i + 1] = np.array(sliced_time[i + 1]) - (sliced_time[i+1][0] - sliced_time[i][-1])
 
         return sliced_time, sliced_stim_time
 
@@ -345,14 +345,14 @@ class C3dToQ:
     def get_sliced_time_Q_rad(self):
         Q_rad = self._get_q()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
-        #sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
+        sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
         dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
         return dictionary
 
     def get_sliced_time_Q_deg(self):
         Q_deg = self.get_q_deg()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_deg)
-        #sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
+        sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
         dictionary = {"q": sliced_data, "time": sliced_time, "stim_time": sliced_stim_time}
         return dictionary
 
