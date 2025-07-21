@@ -13,7 +13,7 @@ from cocofest import (
     ModelMaker,
     OcpFesId, FES_plot,
 )
-
+import pickle
 from cocofest.identification.identification_method import DataExtraction
 from examples.data_process.c3d_to_force import C3dToForce
 
@@ -22,12 +22,12 @@ from examples.data_process.c3d_to_force import C3dToForce
 def set_time_to_zero(stim_time, time_list):
     first_stim = stim_time[0]
     if first_stim > time_list[0]:
-        raise ValueError("Time list should begin at the first stimulation")
+        pass
+        #raise ValueError("Time list should begin at the first stimulation")
     stim_time = list(np.array(stim_time) - first_stim)
     time_list = list(np.array(time_list) - first_stim)
 
     return stim_time, time_list
-
 
 def prepare_ocp(
     model,
@@ -39,11 +39,7 @@ def prepare_ocp(
 ):
     n_shooting = model.get_n_shooting(final_time)
 
-    # stim_time_1 = stim_time + [2 * stim_time[-1]-stim_time[-2]]
-
     force_at_node = DataExtraction.force_at_node_in_ocp(tracked_data["time"], tracked_data["force"], n_shooting, final_time)
-
-    #force_at_node = np.interp(stim_time, tracked_data["time"], tracked_data["force"]).tolist()
 
     numerical_data_time_series, stim_idx_at_node_list = model.get_numerical_data_time_series(n_shooting, final_time)
     dynamics = OcpFesId.declare_dynamics(model=model, numerical_data_timeseries=numerical_data_time_series)
@@ -97,10 +93,13 @@ def prepare_ocp(
     )
 
 
-def main(plot=True, pickle_path=None, muscle_name=None):
+def main(plot=True):
     # Parameters for simulation and identification
-    final_time = 4  #20
-    pulse_width_values = [0.0004] * 50  #500
+    final_time = 2
+    with open("../data_process/seeds_pulse_width.pkl", "rb") as f:  # "C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\data_process\\seeds_pulse_width.pkl"
+        pulse_width_values_list = pickle.load(f)
+    pulse_width = pulse_width_values_list[59][0]
+    pulse_width_values = [pulse_width] * 50
 
     # c3d_converter = C3dToMuscleForce()
     # norm_muscle_force, stim_time, time_list, stim_index_list = c3d_converter.get_force(
