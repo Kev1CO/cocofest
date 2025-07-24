@@ -50,10 +50,7 @@ class C3dToForce:
 
         self.c3d_path = c3d_path
 
-        if saving_pickle_path is None:
-            raise ValueError("Please provide one or several saving paths for the pickle files.")
-
-        self.saving_pickle_path = saving_pickle_path
+        self.saving_pickle_path = saving_pickle_path if saving_pickle_path else f"{c3d_path[:-3]}pkl"
 
         self.avg_stim_time = {20: 0.0008799999999999671, 33: 0.0008608695652174252, 50: 0.0008739549839228076}
 
@@ -432,8 +429,7 @@ class C3dToForce:
 
         return time_peaks, peaks
 
-    def _get_avg_time_diff(
-        self, c3d_path_stim_diff: str | list[str]):
+    def _get_avg_time_diff(self, c3d_path_stim_diff: str | list[str]):
         """
         This function calculates the average time difference between the stimulation time and the measured data
         Parameters
@@ -640,7 +636,6 @@ class C3dToForce:
         The muscle force
         """
         self.muscle_force_vector = []
-        tau_list = []
         for i in range(len(local_data[0])):
             spatial_vector = np.array(
                 [
@@ -665,10 +660,8 @@ class C3dToForce:
             ).to_array()
             dof_index = self.dof_name_index[self.dof_name]
             tau = tau[dof_index]
-            tau_list.append(tau)
             muscle_force = tau / self.muscle_moment_arm
             self.muscle_force_vector.append(muscle_force)
-        self.save_in_pkl(tau_list, "tau_p07.pkl")
 
     def get_force(self, save: bool = False, plot: bool = True):
         self.get_data_at_handle()
@@ -702,7 +695,6 @@ if __name__ == "__main__":
         c3d_path="/home/mickaelbegon/Documents/Stage_Florine/Data/P11/p11_force_20Hz_29.c3d",
         calibration_matrix_path="matrix.txt",
         saving_pickle_path="test.pkl",
-        frequency_acquisition=10000,
         frequency_stimulation=20,
         rest_time=1,
         #model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
