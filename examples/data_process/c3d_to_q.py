@@ -61,9 +61,6 @@ class C3dToQ:
             self.data_stim = analog.data[index]
             self.time_stim = analog.time.data
 
-            #plt.plot(self.time_stim, self.data_stim)
-            #plt.show()
-
     @staticmethod
     def _get_index(name, lst):
         """
@@ -124,15 +121,6 @@ class C3dToQ:
         new_data = [[data[i][j] for j in new_indices] for i in range(len(data))]
 
         return new_data
-
-    def _get_wrist_position(self):
-        self.wirst_position = np.zeros_like(self.data_dict["rwra"])
-        for i in range(len(self.data_dict["rwra"][0])):
-            self.wirst_position[0, i] = (self.data_dict["rwrb"][0, i] + self.data_dict["rwra"][0, i]) / 2
-            self.wirst_position[1, i] = (self.data_dict["rwrb"][1, i] + self.data_dict["rwra"][1, i]) / 2
-            self.wirst_position[2, i] = (self.data_dict["rwrb"][2, i] + self.data_dict["rwra"][2, i]) / 2
-
-        return self.wirst_position
 
     @staticmethod
     def _get_segment_vector(start, end):
@@ -309,15 +297,6 @@ class C3dToQ:
             sliced_time[i + 1] = np.array(sliced_time[i + 1]) - (sliced_time[i+1][0] - sliced_time[i][-1])
 
         return sliced_time, sliced_stim_time
-
-    def forearm_length(self):
-        self.load_c3d()
-        self._get_wrist_position()
-        self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.wirst_position)
-        norm_forearm = []
-        for i in range(len(self.forearm_position[0])):
-            norm_forearm.append(np.linalg.norm(self.forearm_position[:, i]))
-        return np.mean(norm_forearm)
 
     def _get_q(self):
         self.load_c3d()
