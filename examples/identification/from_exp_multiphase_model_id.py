@@ -19,8 +19,10 @@ from bioptim import (
     ParameterList,
     Solver,
     SolutionMerge,
-    CostType, DynamicsList, PhaseDynamics, PhaseTransitionList, VariableScaling, SelectionMapping,
+    CostType, DynamicsList, PhaseDynamics, VariableScaling, SelectionMapping,
     Dependency,
+    Shooting,
+    SolutionIntegrator, Solution,
 )
 
 from cocofest.identification.identification_method import DataExtraction
@@ -137,8 +139,8 @@ def set_x_bounds(bio_models, i, x_init, x_bounds):
 
 
 def prepare_ocp(
-    models,
-    final_time: list,
+    model,
+    final_time: float,
     pulse_width_values: list,
     key_parameter_to_identify,
     q_target,
@@ -157,14 +159,14 @@ def prepare_ocp(
     n_shooting = q_target.shape[0]
     q_at_node = DataExtraction.force_at_node_in_ocp(time, q_target, n_shooting, final_time)
 
-    numerical_data_time_series, stim_idx_at_node_list = models[0].muscles_dynamics_model[0].get_numerical_data_time_series(
+    numerical_data_time_series, stim_idx_at_node_list = model.muscles_dynamics_model[0].get_numerical_data_time_series(
         n_shooting, final_time
     )
 
     # Dynamics definition
     dynamics.add(
-        models[0].declare_model_variables,
-        dynamic_function=models[0].muscle_dynamic,
+        model.declare_model_variables,
+        dynamic_function=model.muscle_dynamic,
         expand_dynamics=True,
         expand_continuity=False,
         phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
@@ -174,8 +176,8 @@ def prepare_ocp(
     )
 
     # States bounds and initial guess
-    x_bounds, x_init = set_x_bounds(models[0], 0, x_init, x_bounds)
-    q_x_bounds = models[0].bounds_from_ranges("q")
+    x_bounds, x_init = set_x_bounds(model, 0, x_init, x_bounds)
+    q_x_bounds = model.bounds_from_ranges("q")
     q_x_bounds.min[0][0] = q_at_node[0] - 0.1
     q_x_bounds.max[0][0] = q_at_node[0] + 0.1
     q_x_bounds.min[0][1] = 0
@@ -184,7 +186,7 @@ def prepare_ocp(
     q_x_bounds.max[0][2] = 5
     # q_x_bounds.max[0][1] = np.deg2rad(180-44)  # Participant's joint limit
     # q_x_bounds.max[0][2] = np.deg2rad(180-44)  # Participant's joint limit
-    qdot_x_bounds = models[0].bounds_from_ranges("qdot")
+    qdot_x_bounds = model.bounds_from_ranges("qdot")
     qdot_x_bounds.min[0][0] = 0
     qdot_x_bounds.max[0][0] = 0.1
 
@@ -192,8 +194,8 @@ def prepare_ocp(
     x_bounds.add(key="qdot", bounds=qdot_x_bounds, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
 
     # Controls bounds and initial guess
-    if isinstance(models[0].muscles_dynamics_model[0], DingModelPulseWidthFrequency):
-        for muscle in models[0].muscles_dynamics_model:
+    if isinstance(model.muscles_dynamics_model[0], DingModelPulseWidthFrequency):
+        for muscle in model.muscles_dynamics_model:
             u_init.add(
                 key="last_pulse_width_" + muscle.muscle_name,
                 initial_guess=np.array([pulse_width_values]),
@@ -216,23 +218,32 @@ def prepare_ocp(
             target=target,
             node=Node.ALL,
             quadratic=True,
-            index=[0],
         )
 
         x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME)
 
+        # objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1, quadratic=True, node=Node.ALL_SHOOTING)
+
+        # u_init.add(key="tau", initial_guess=np.zeros((models[0].nb_tau, n_shooting)), interpolation=InterpolationType.EACH_FRAME)
+        # u_bounds.add(key="tau", min_bound=-10.0, max_bound=10.0, interpolation=InterpolationType.EACH_FRAME)
+
     # Parameters definition
-    ocp_fes_id = OcpFesId()
-    additional_key_settings = ocp_fes_id.set_default_values(model=models[0].muscles_dynamics_model[0])
+    additional_key_settings = OcpFesIdMultibody.set_default_values(msk_model=model)
 
-    additional_key_settings["tau1_rest"]["function"] = lambda models, value: set_tau1_rest_all_model(models, value)
-    additional_key_settings["tau2"]["function"] = lambda models, value: set_tau2_all_model(models, value)
-    additional_key_settings["km_rest"]["function"] = lambda models, value: set_km_rest_all_model(models, value)
-    additional_key_settings["a_scale"]["function"] = lambda models, value: set_a_scale_all_model(models, value)
-    additional_key_settings["pd0"]["function"] = lambda models, value: set_pd0_all_model(models, value)
-    additional_key_settings["pdt"]["function"] = lambda models, value: set_pdt_all_model(models, value)
+    additional_key_settings["tau1_rest_BIClong"]["function"] = lambda models, value: set_tau1_rest_all_model(models, value)
+    additional_key_settings["tau2_BIClong"]["function"] = lambda models, value: set_tau2_all_model(models, value)
+    additional_key_settings["km_rest_BIClong"]["function"] = lambda models, value: set_km_rest_all_model(models, value)
+    additional_key_settings["a_scale_BIClong"]["function"] = lambda models, value: set_a_scale_all_model(models, value)
+    additional_key_settings["pd0_BIClong"]["function"] = lambda models, value: set_pd0_all_model(models, value)
+    additional_key_settings["pdt_BIClong"]["function"] = lambda models, value: set_pdt_all_model(models, value)
+    additional_key_settings["tau1_rest_BICshort"]["function"] = lambda models, value: set_tau1_rest_all_model(models, value)
+    additional_key_settings["tau2_BICshort"]["function"] = lambda models, value: set_tau2_all_model(models, value)
+    additional_key_settings["km_rest_BICshort"]["function"] = lambda models, value: set_km_rest_all_model(models, value)
+    additional_key_settings["a_scale_BICshort"]["function"] = lambda models, value: set_a_scale_all_model(models, value)
+    additional_key_settings["pd0_BICshort"]["function"] = lambda models, value: set_pd0_all_model(models, value)
+    additional_key_settings["pdt_BICshort"]["function"] = lambda models, value: set_pdt_all_model(models, value)
 
-    parameters, parameters_bounds, parameters_init = ocp_fes_id.set_parameters(
+    parameters, parameters_bounds, parameters_init = OcpFesId.set_parameters(
         parameter_to_identify=key_parameter_to_identify,
         parameter_setting=additional_key_settings,
         use_sx=use_sx,
@@ -245,17 +256,17 @@ def prepare_ocp(
             param_scaling = parameters[param_key].scaling.scaling
             param_reduced = parameters[param_key].cx
             fes_models_for_param_key = [
-                models[i].muscles_dynamics_model[0] for i in range(len(models))
+                model.muscles_dynamics_model[i] for i in range(len(model.muscles_dynamics_model)) if model.muscles_dynamics_model[i].muscle_name in param_key
             ]
             # reshaped_param = casadi.MX(param_reduced * param_scaling).T
             parameters[param_key].function(
                 fes_models_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
             )
-    for i in range(n_phase):
-        models[i].parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
+
+    model.parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
 
     return OptimalControlProgram(
-        bio_model=models,
+        bio_model=[model],
         dynamics=dynamics,
         n_shooting=n_shooting,
         phase_time=final_time,
@@ -275,11 +286,8 @@ def prepare_ocp(
 
 
 def main(plot=True, n_phase=2):
-    final_time = []
-
     # Get experimental data
     converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/Data/P05/p05_motion_50Hz_62.c3d")
-    # converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/testp_kevin_20Hz_69.c3d")
     converter.frequency_stimulation = 50
     data_dict = converter.get_sliced_time_Q_rad()
     time = data_dict["time"]
@@ -304,15 +312,12 @@ def main(plot=True, n_phase=2):
     plt.show()
 
     # Define MSK models
-    models = []
-    # for i in range(n_phase):
-    muscle_model = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
-    # Set the muscle model parameters
-    # muscle_model.a_scale = 2693.03548082
+    biclong_model = DingModelPulseWidthFrequency(muscle_name="BIClong", sum_stim_truncation=10)
+    bicshort_model = DingModelPulseWidthFrequency(muscle_name="BICshort", sum_stim_truncation=10)
     model = FesMskModel(
         name=None,
         biorbd_path="../model_msk/p05_scaling_scaled.bioMod",
-        muscles_model=[muscle_model],
+        muscles_model=[biclong_model, bicshort_model],
         stim_time=list(np.round(stim_time, 2)),
         activate_force_length_relationship=True,
         activate_force_velocity_relationship=True,
@@ -320,22 +325,27 @@ def main(plot=True, n_phase=2):
         activate_residual_torque=False,
         external_force_set=None,  # External forces will be added later
     )
-    models.append(model)
 
     # final_time.append(np.round(time[i][-1] - time[i][0], 2))
     final_time = time[-1]
 
     ocp = prepare_ocp(
-        models,
+        model,
         final_time,
         pulse_width_control,
         key_parameter_to_identify=[
-            "tau1_rest",
-            "tau2",
-            "km_rest",
-            "a_scale",
-            # "pd0",
-            # "pdt",
+            "tau1_rest_BIClong",
+            "tau2_BIClong",
+            "km_rest_BIClong",
+            "a_scale_BIClong",
+            # "pd0_BIClong",
+            # "pdt_BIClong",
+            "tau1_rest_BICshort",
+            "tau2_BICshort",
+            "km_rest_BICshort",
+            "a_scale_BICshort",
+            # "pd0_BICshort",
+            # "pdt_BICshort",
         ],
         q_target=Q_rad,
         time=time,
