@@ -28,12 +28,3 @@ class CustomConstraint:
             parameters = parameters[size_diff:]
 
         return controller.controls[key].cx - vertcat(*parameters)
-
-    @staticmethod
-    def muscles_param_constraint(controller: PenaltyController, key: str, muscle: list[str] | str):
-        if isinstance(muscle, str):
-            raise TypeError("muscle should be a list of at least 2 strings")
-        key_list = []
-        for muscle_name in muscle:
-            key_list.append(key + "_" + muscle_name)
-        return controller.parameters[key_list[0]].cx - controller.parameters[key_list[1]].cx
