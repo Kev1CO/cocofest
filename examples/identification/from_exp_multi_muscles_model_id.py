@@ -99,7 +99,7 @@ def set_parameters(parameters_to_identify: list, additional_key_settings: dict, 
     return parameters, parameters_bounds, parameters_init
 
 
-def set_x_bounds(bio_models, i, x_init, x_bounds):
+def set_x_bounds(bio_models, x_init, x_bounds):
     for model in bio_models.muscles_dynamics_model:
         muscle_name = model.muscle_name
         variable_bound_list = [model.name_dof[i] + "_" + muscle_name for i in range(len(model.name_dof))]
@@ -128,12 +128,11 @@ def set_x_bounds(bio_models, i, x_init, x_bounds):
                 variable_bound_list[j],
                 min_bound=np.array([starting_bounds_min[j]]),
                 max_bound=np.array([starting_bounds_max[j]]),
-                phase=i,
                 interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
             )
 
         for j in range(len(variable_bound_list)):
-            x_init.add(variable_bound_list[j], model.standard_rest_values()[j], phase=i)
+            x_init.add(variable_bound_list[j], model.standard_rest_values()[j])
 
     return x_bounds, x_init
 
@@ -146,15 +145,7 @@ def prepare_ocp(
     q_target,
     time,
     use_sx=False,
-    n_phase: int = 2,
 ):
-    dynamics = DynamicsList()
-    u_bounds = BoundsList()
-    u_init = InitialGuessList()
-    objective_functions = ObjectiveList()
-    x_bounds = BoundsList()
-    x_init = InitialGuessList()
-
     # Problem parameters
     n_shooting = q_target.shape[0]
     q_at_node = DataExtraction.force_at_node_in_ocp(time, q_target, n_shooting, final_time)
@@ -164,6 +155,7 @@ def prepare_ocp(
     )
 
     # Dynamics definition
+    dynamics = DynamicsList()
     dynamics.add(
         model.declare_model_variables,
         dynamic_function=model.muscle_dynamic,
@@ -176,7 +168,9 @@ def prepare_ocp(
     )
 
     # States bounds and initial guess
-    x_bounds, x_init = set_x_bounds(model, 0, x_init, x_bounds)
+    x_bounds = BoundsList()
+    x_init = InitialGuessList()
+    x_bounds, x_init = set_x_bounds(model, x_init, x_bounds)
     q_x_bounds = model.bounds_from_ranges("q")
     q_x_bounds.min[0][0] = q_at_node[0] - 0.1
     q_x_bounds.max[0][0] = q_at_node[0] + 0.1
@@ -194,6 +188,8 @@ def prepare_ocp(
     x_bounds.add(key="qdot", bounds=qdot_x_bounds, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT)
 
     # Controls bounds and initial guess
+    u_bounds = BoundsList()
+    u_init = InitialGuessList()
     if isinstance(model.muscles_dynamics_model[0], DingModelPulseWidthFrequency):
         for muscle in model.muscles_dynamics_model:
             u_init.add(
@@ -208,24 +204,25 @@ def prepare_ocp(
                 interpolation=InterpolationType.EACH_FRAME,
             )
 
-        # Add objective functions
-        target = np.array(q_at_node)[np.newaxis, :]
+    # Add objective functions
+    target = np.array(q_at_node)[np.newaxis, :]
 
-        objective_functions.add(
-            ObjectiveFcn.Lagrange.MINIMIZE_STATE,
-            key="q",
-            weight=10000,
-            target=target,
-            node=Node.ALL,
-            quadratic=True,
-        )
+    objective_functions = ObjectiveList()
+    objective_functions.add(
+        ObjectiveFcn.Lagrange.TRACK_STATE,
+        key="q",
+        weight=10000,
+        target=target,
+        node=Node.ALL,
+        quadratic=True,
+    )
 
-        x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME)
+    x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME)
 
-        # objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1, quadratic=True, node=Node.ALL_SHOOTING)
+    # objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1, quadratic=True, node=Node.ALL_SHOOTING)
 
-        # u_init.add(key="tau", initial_guess=np.zeros((models[0].nb_tau, n_shooting)), interpolation=InterpolationType.EACH_FRAME)
-        # u_bounds.add(key="tau", min_bound=-10.0, max_bound=10.0, interpolation=InterpolationType.EACH_FRAME)
+    # u_init.add(key="tau", initial_guess=np.zeros((models[0].nb_tau, n_shooting)), interpolation=InterpolationType.EACH_FRAME)
+    # u_bounds.add(key="tau", min_bound=-10.0, max_bound=10.0, interpolation=InterpolationType.EACH_FRAME)
 
     # Parameters definition
     additional_key_settings = OcpFesIdMultibody.set_default_values(msk_model=model)
@@ -250,7 +247,6 @@ def prepare_ocp(
     )
 
     # Update models with parameters
-
     for param_key in parameters:
         if parameters[param_key].function:
             param_scaling = parameters[param_key].scaling.scaling
@@ -263,7 +259,7 @@ def prepare_ocp(
                 fes_models_for_param_key, param_reduced * param_scaling, **parameters[param_key].kwargs
             )
 
-    model.parameters = parameters.mx #TODO : commentaire pour expliquer le .mx
+    model.parameters = parameters.mx  #this command is necessary to update parameters
 
     return OptimalControlProgram(
         bio_model=[model],
@@ -285,7 +281,7 @@ def prepare_ocp(
     )
 
 
-def main(plot=True, n_phase=2):
+def main(plot=True, total_cycles=1):
     # Get experimental data
     converter = C3dToQ("/home/mickaelbegon/Documents/Stage_Florine/Data/P05/p05_motion_50Hz_62.c3d")
     converter.frequency_stimulation = 50
@@ -294,7 +290,7 @@ def main(plot=True, n_phase=2):
     stim_time = data_dict["stim_time"]
     Q_rad = data_dict["q"]
 
-    total_cycles = 1
+    # Get pulse width values
     with open("../data_process/seeds_pulse_width.pkl", "rb") as f:
         data = pickle.load(f)
     pulse_width_list = data[62]  # Example pulse width values for each phase
@@ -326,8 +322,7 @@ def main(plot=True, n_phase=2):
         external_force_set=None,  # External forces will be added later
     )
 
-    # final_time.append(np.round(time[i][-1] - time[i][0], 2))
-    final_time = time[-1]
+    final_time = np.round(time[-1], 2)
 
     ocp = prepare_ocp(
         model,
@@ -349,7 +344,6 @@ def main(plot=True, n_phase=2):
         ],
         q_target=Q_rad,
         time=time,
-        n_phase=n_phase,
     )
 
     ocp.add_plot_penalty(CostType.ALL)
@@ -367,13 +361,12 @@ def main(plot=True, n_phase=2):
     passive_torque_plot = True
     if passive_torque_plot:
         omega = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["qdot"][0]
-        #omega = np.where(omega < 0, 0, omega)  # Set negative velocities to zero
 
         k1 = 0.24395358  # k=1
         k2 = 0.00103129
         k3 = 0.00194639
         k4 = 24.41585281
-        kc1 = 1.05713656
+        kc1 = 0.105713656
         kc2 = 0.19654403
         theta_max = 2.27074652
         theta_min = 0.49997778
@@ -429,4 +422,4 @@ def main(plot=True, n_phase=2):
 
 
 if __name__ == "__main__":
-    main(n_phase=1)
+    main(total_cycles=1)
