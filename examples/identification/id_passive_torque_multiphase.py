@@ -167,9 +167,10 @@ def prepare_ocp(model_path,
 
         n_shooting.append(q_target[i].shape[0])
 
+        muscle_driven = MuscleDrivenPassiveTorque()
         dynamics.add(
-            MuscleDrivenPassiveTorque.declare_dynamics,
-            dynamic_function=MuscleDrivenPassiveTorque.muscles_driven,
+            muscle_driven.declare_dynamics,
+            dynamic_function=muscle_driven.muscles_driven,
             expand_dynamics=True,
             phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
             numerical_data_timeseries=None,

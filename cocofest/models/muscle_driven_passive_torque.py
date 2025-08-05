@@ -34,8 +34,7 @@ class MuscleDrivenPassiveTorque:
         self.theta_min = theta_min_default
 
 
-    @staticmethod
-    def declare_dynamics(
+    def declare_dynamics(self,
             ocp,
             nlp,
             with_excitations: bool = False,
@@ -96,7 +95,7 @@ class MuscleDrivenPassiveTorque:
         ConfigureProblem.configure_dynamics_function(
             ocp,
             nlp,
-            dyn_func=MuscleDrivenPassiveTorque.muscles_driven,
+            dyn_func=self.muscles_driven,
             with_contact=with_contact,
             fatigue=fatigue,
             with_residual_torque=with_residual_torque,
@@ -113,8 +112,7 @@ class MuscleDrivenPassiveTorque:
             )
         ConfigureProblem.configure_soft_contact_function(ocp, nlp)
 
-    @staticmethod
-    def muscles_driven(
+    def muscles_driven(self,
         time,
         states,
         controls,
@@ -208,7 +206,7 @@ class MuscleDrivenPassiveTorque:
         muscles_tau = DynamicsFunctions.compute_tau_from_muscle(nlp, q, qdot, mus_activations, fatigue_states)
 
         tau = muscles_tau + residual_tau if residual_tau is not None else muscles_tau
-        tau = tau + MuscleDrivenPassiveTorque.get_passive_torque(
+        tau = tau + self.get_passive_torque(
             k1=parameters[0],
              k2=parameters[1],
              k3=parameters[2],
@@ -246,18 +244,11 @@ class MuscleDrivenPassiveTorque:
 
     @staticmethod
     def get_passive_torque(k1, k2, k3, k4, kc1, kc2, theta, theta_min, theta_max, theta_dot):
-        md = MuscleDrivenPassiveTorque()
         def sigmoide(x):
             return 1 / (1 + exp(-x))
-        #c = - kc1 * np.exp(-kc2 * (theta - theta_min)) + kc3 * np.exp(kc4 * (theta - theta_max))
-        c = 0.1
+
         c = (sigmoide(-(theta - theta_min) / kc1) + sigmoide((theta - theta_max) / kc2))
-        # theta_dot = if_else(theta_dot > 0, theta_dot, 0)  # Ensure that the velocity is positive
-        #s = 1 / (1 + exp(-(theta_dot)))
-        def relu_lisse(x, n=1, alpha=100):
-            return (1/alpha * np.log1p(np.exp(alpha * x)))**n
-        alpha = k3
-        n = k4
+
         passive_torque = k1 * exp(-k2 * (theta - theta_min)) * sigmoide(-(theta - theta_min)) - c * theta_dot - k3 * exp(k4 * (theta - theta_max)) * sigmoide(theta - theta_max)
         #k1 * relu_lisse(theta_min - theta, n=n, alpha=alpha) - k2 * relu_lisse(theta - theta_max, n=n, alpha=alpha) - c * theta_dot)
         #(k1 * exp(-k2 * (theta - theta_min)) - k3 * exp(k4 * (theta - theta_max)) - (c * theta_dot))
