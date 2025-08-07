@@ -1,8 +1,6 @@
-from typing import final
-
-from bioptim import FatigueList, ConfigureProblem, DynamicsFunctions, DynamicsList, DynamicsFcn, PhaseDynamics, \
+from bioptim import DynamicsList, PhaseDynamics, \
     OptimalControlProgram, BoundsList, InitialGuessList, OdeSolver, ControlType, ObjectiveList, ObjectiveFcn, Node, \
-    CostType, Solver, SolutionMerge, BiorbdModel, InterpolationType, VariableScaling, ParameterList, \
+    CostType, Solver, SolutionMerge, BiorbdModel, InterpolationType, \
     PhaseTransitionList, PhaseTransitionFcn
 from cocofest import FesMskModel, DingModelPulseWidthFrequency, OcpFesMsk, OcpFesId
 from cocofest.identification.identification_method import DataExtraction
@@ -86,14 +84,14 @@ def prepare_ocp(model_path,
         "kc1": {
             "initial_guess": 0.1,
             "min_bound": 0.01,
-            "max_bound": 2,
+            "max_bound": 0.3,
             "function": MuscleDrivenPassiveTorque.set_kc1,
             "scaling": 1
         },
         "kc2": {
             "initial_guess": 0.1,
             "min_bound": 0.01,
-            "max_bound": 2,
+            "max_bound": 0.3,
             "function": MuscleDrivenPassiveTorque.set_kc2,
             "scaling": 1
         },
@@ -218,6 +216,7 @@ def prepare_ocp(model_path,
                 index=[0],
                 phase=i,
             )
+
         if i < len(q_target) - 1:
             phase_transitions.add(PhaseTransitionFcn.DISCONTINUOUS, phase_pre_idx=i)
 
@@ -332,6 +331,12 @@ if __name__ == "__main__":
     data_up["time"] = [data_up["time"]] + [time]
     data_up["q_rad"] = [data_up["q_rad"]] + [q_rad]
 
-    models = ["../model_msk/p05_scaling_scaled.bioMod", "../model_msk/p05_scaling_scaled.bioMod", "../model_msk/p05_scaling_scaled.bioMod", "../model_msk/p05_scaling_scaled.bioMod", "../model_msk/p05_scaling_scaled.bioMod", "../model_msk/p05_scaling_scaled_modified.bioMod", "../model_msk/p05_scaling_scaled_modified.bioMod"]
+    models = ["../model_msk/p05_scaling_scaled.bioMod",
+              "../model_msk/p05_scaling_scaled.bioMod",
+              "../model_msk/p05_scaling_scaled.bioMod",
+              "../model_msk/p05_scaling_scaled.bioMod",
+              "../model_msk/p05_scaling_scaled.bioMod",
+              "../model_msk/p05_scaling_scaled_modified.bioMod",
+              "../model_msk/p05_scaling_scaled_modified.bioMod"]
 
     main(data_low=data_low, data_up=data_up, model_paths=models, bounds_list = ["low", "low", "low", "low", "low", "up", "up"], plot=True)
