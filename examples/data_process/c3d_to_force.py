@@ -8,7 +8,11 @@ from pyomeca import Analogs
 
 from biorbd import Model
 
-
+"""This class provides a method to process c3d files and extract 6D force data. 
+- Please be aware that names of Vicon outputs can be different from mine, you can change them in the dictionary default_index.
+- The average stimulation time difference (avg_stim_time) is based on the average time difference between the stimulation 
+signal sent to Vicon and the one send to the electrodes. It depends on several factors and needs to be calculated again.
+You can use the method _get_avg_time_diff to calculate it."""
 class C3dToForce:
     def __init__(
         self,
@@ -52,6 +56,7 @@ class C3dToForce:
 
         self.saving_pickle_path = saving_pickle_path if saving_pickle_path else f"{c3d_path[:-3]}pkl"
 
+        # Needs to be changed if you're using a different experimental set-up
         self.avg_stim_time = {20: 0.0008799999999999671, 33: 0.0008608695652174252, 50: 0.0008739549839228076}
 
         self.rest_time = kwargs["rest_time"] if "rest_time" in kwargs else 1
@@ -59,6 +64,8 @@ class C3dToForce:
         self.frequency_acquisition = kwargs["frequency_acquisition"] if "frequency_acquisition" in kwargs else 10000
 
         self.frequency_stimulation = kwargs["frequency_stimulation"] if "frequency_stimulation" in kwargs else 50
+        if "frequency_stimulation" not in kwargs:
+            raise Warning("Please provide the frequency of stimulation, the default value is 50Hz.")
 
         self.calibration_matrix_path = calibration_matrix_path
 
@@ -144,27 +151,29 @@ class C3dToForce:
             return None
 
     @staticmethod
-    def get_index(name, lst):
+    def get_index(object, lst):
         """
-        This function returns the index of the name in the list.
+        This function returns the index of the given object in the list.
         Parameters
         ----------
-        name: str | int | float
+        object: str | int | float
+            The object whose index we want to find
         lst: list
-
+            The list in which to search for the object's index
         Returns
         -------
-        The index of the name in the list
+        The index of the object in the list
         """
         indice = 0
         for i in range(len(lst)):
-            if name == lst[i]:
+            if object == lst[i]:
                 indice = i
         return indice
 
     def set_index(self, raw_data):
         """
-        This function create a list of new index based on the default index dict
+        This function create a list of new indexes based on the default index dict. This list has the right format to
+        use the reindex_2d_list function.
         Parameters
         ----------
         raw_data: Analogs
@@ -184,13 +193,13 @@ class C3dToForce:
     @staticmethod
     def reindex_2d_list(data, new_indices):
         """
-        This function reindex a 2D list based on the new index list
+        This function reindex a 2D list based on the new index list.
         Parameters
         ----------
         data: array
             The data to reindex
         new_indices: list
-            Contains new index
+            Contains new indexes
 
         Returns
         -------
@@ -206,11 +215,9 @@ class C3dToForce:
         return new_data
 
     @staticmethod
-    def set_zero_level(
-        data: np.array, average_length: int = 1000, average_on: list[int] = None
-    ):
+    def set_zero_level(data: np.array, average_length: int = 1000, average_on: list[int] = None):
         """
-        This function sets the zero level of the data by subtracting the mean of the first n points
+        This function sets the zero level of the data by subtracting the mean of the first n points (default n=1000)
         Parameters
         ----------
         data: array
@@ -244,7 +251,9 @@ class C3dToForce:
 
     def slice_data(self, time, data, stimulation_index):
         """
-        This function slices the data into trains based on the stimulation index
+        This function slices the data into trains based on the stimulation indexes. It detects the stimulation trains by
+        comparing the gap between two stimulation indexes. In the same stimulation train, the gap between two indexes is
+        pretty constant, whereas between two indexes of two different trains, the gap is larger (above delta).
         Parameters
         ----------
         time: array
@@ -275,7 +284,7 @@ class C3dToForce:
         temp_stimulation_index = stimulation_index
 
         i = 0
-        delta = self.frequency_acquisition / self.frequency_stimulation * 1.3
+        delta = self.frequency_acquisition / self.frequency_stimulation * 1.3 #choosing 30% is arbitrary, but it works well in practice
 
         while len(temp_stimulation_index) != 0 and i < len(stimulation_index) - 1:
             first = stimulation_index[i]
@@ -300,21 +309,18 @@ class C3dToForce:
 
             i += 1
 
-            temp_stimulation_index = [
-                peaks for peaks in temp_stimulation_index if peaks > last
-            ]
+            temp_stimulation_index = [peaks for peaks in temp_stimulation_index if peaks > last]
 
         self.sliced_data = [x, y, z, mx, my, mz, torque_ergometer]
 
     def set_to_zero_slice(self):
         """
-        This function sets the zero level of the sliced data by subtracting the first value of each slice
+        This function sets the zero level of the sliced data by subtracting the first value of each slice. Each slice
+        will start at 0. The rest part is also set to zero.
         """
         for i in range(len(self.sliced_data)):
             for j in range(len(self.sliced_data[i])):
-                self.sliced_data[i][j] = (
-                    np.array(self.sliced_data[i][j]) - self.sliced_data[i][j][0]
-                )
+                self.sliced_data[i][j] = np.array(self.sliced_data[i][j]) - self.sliced_data[i][j][0]
                 for k, val in enumerate(self.sliced_data[i][j][1000:]): #in case first values are negative
                     if val <= 0:
                         self.sliced_data[i][j][k + 1 :] = 0
@@ -331,22 +337,21 @@ class C3dToForce:
 
     def get_stimulation(self, time, stimulation_signal):
         """
-        This function detects the stimulation time and returns the time and index of the stimulation
+        This function detects the stimulation and returns the time and index of the stimulation. It is based on the
+        derivative's values of the stimulation signal.
         Parameters
         ----------
         time: array
             The time data
         stimulation_signal: array
             The stimulation signal
-        average_time_difference: float
-            The average time difference to add to the stimulation time
 
         Returns
         -------
         time_peaks: list
-            The time of the stimulation
+            The stimulation's time
         peaks: list
-            The index of the stimulation
+            The stimulation's indexes
         """
         derivative = np.diff(stimulation_signal)
 
@@ -370,9 +375,7 @@ class C3dToForce:
         time_peaks = [time[peak] for peak in peaks]
 
         time_peaks = np.array(time_peaks) + self.avg_stim_time[self.frequency_stimulation]
-        peaks = np.array(peaks) + int(
-            self.avg_stim_time[self.frequency_stimulation] * self.frequency_acquisition
-        )
+        peaks = np.array(peaks) + int(self.avg_stim_time[self.frequency_stimulation] * self.frequency_acquisition)
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()
@@ -384,7 +387,8 @@ class C3dToForce:
     @staticmethod
     def _stimulation_detection_for_time_diff(time, stimulation_signal):
         """
-        This function detects the stimulation time and returns the time and index of the stimulation
+        This function detects the stimulation time and returns the time and index of the stimulation. It is used to
+        compute average time difference between the stimulation sent to acquisition and the one sent to the electrodes.
         Parameters
         ----------
         time: array
@@ -407,9 +411,7 @@ class C3dToForce:
         negative = np.where(stimulation_signal < threshold_negative)
 
         if negative[0][0] < positive[0][0]:
-            stimulation_signal = (
-                -stimulation_signal
-            )  # invert the signal if the first peak is negative
+            stimulation_signal = -stimulation_signal # invert the signal if the first peak is negative
             threshold = -threshold_negative
         else:
             threshold = threshold_positive
@@ -431,11 +433,12 @@ class C3dToForce:
 
     def _get_avg_time_diff(self, c3d_path_stim_diff: str | list[str]):
         """
-        This function calculates the average time difference between the stimulation time and the measured data
+        This function calculates the average time difference between the stimulation sent to acquisition and the one
+        sent to the electrodes.
         Parameters
         ----------
         c3d_path_stim_diff: str | list[str]
-            The path to the c3d file containing the stimulation signal and the measured data
+            The path to the c3d file(s) containing the stimulation signals sent to the acquisition and the electrodes.
 
         Returns
         -------
@@ -443,11 +446,7 @@ class C3dToForce:
             The average time difference between the stimulation time and the measured data
         """
         # Conversion into list
-        c3d_path_list = (
-            [c3d_path_stim_diff]
-            if isinstance(c3d_path_stim_diff, str)
-            else c3d_path_stim_diff
-        )
+        c3d_path_list = [c3d_path_stim_diff] if isinstance(c3d_path_stim_diff, str) else c3d_path_stim_diff
 
         for i in range(len(c3d_path_list)):
             c3d_path = c3d_path_list[i]
@@ -471,21 +470,30 @@ class C3dToForce:
 
                 avg_time_diff = np.mean(time_diff)
             else:
-                raise ValueError(
-                    "Measured data and muscle data must have same frequency"
-                )
+                raise ValueError("Measured data and muscle data must have same frequency")
 
             return avg_time_diff
 
     @staticmethod
     def save_in_pkl(data, saving_pickle_path):
+        """
+        This function saves the given data in a pickle file.
+        Parameters
+        ----------
+        data
+            the data to save
+        saving_pickle_path : str
+            The path where the data will be saved as a pickle file.
+
+        """
         with open(saving_pickle_path, "wb") as file:
             pickle.dump(data, file)
 
     def _calibration(self):
-        #self.torque_ergometer = np.array(self.torque_ergometer) * np.mean(self.filtered_6d_force[4]) / np.mean(
-            #self.filtered_data[4])
-
+        """
+        This function calibrates the data using the calibration matrix. If the calibration matrix is not provided, it
+        checks if the data is already calibrated. If not, it raises an error.
+        """
         if self.calibration_matrix_path is None and self.already_calibrated is False:
             raise ValueError("Please provide a calibration matrix path.")
         elif self.calibration_matrix_path is None and self.already_calibrated is True:
@@ -495,12 +503,21 @@ class C3dToForce:
             self.filtered_6d_force = self.calibration_matrix @ self.filtered_data[:6]
 
     def _load_c3d(self, c3d_path):
+        """
+        This function loads the c3d file and extracts the analog data.
+        Parameters
+        ----------
+        c3d_path: str
+            file path to the c3d file
+        """
         if not isinstance(c3d_path, str):
             raise TypeError("c3d_path must be a str or a list of str.")
         self.raw_data = Analogs.from_c3d(c3d_path)
 
     def get_data_at_handle(self):
-
+        """
+        This function provides the force data at the handle. It uses all the functions defined above.
+        """
         # Getting data from c3d file
         self._load_c3d(self.c3d_path)
 
@@ -571,7 +588,7 @@ class C3dToForce:
             If elbow_angle is a list, the function will use the first element of the list.
         """
         # Load a predefined model
-        self.model = Model(self.model_path)  # TODO : relative path
+        self.model = Model(self.model_path)
         # Get number of q, qdot, qddot
         nq = self.model.nbQ()
         nqdot = self.model.nbQdot()
@@ -579,10 +596,8 @@ class C3dToForce:
 
         # Choose a position/velocity/acceleration to compute dynamics from
         if nq != 2:
-            raise ValueError("The number of degrees of freedom has changed.")  # 0
-        self.Q = np.array(
-            [0.0, np.radians(elbow_angle)]
-        )  # "0" arm along body and "1.57" 90° forearm position  |__.
+            raise ValueError("The number of degrees of freedom has changed.")
+        self.Q = np.array([0.0, np.radians(elbow_angle)])
         self.Qdot = np.zeros((nqdot,))  # speed null
         self.Qddot = np.zeros((nqddot,))  # acceleration null
 
@@ -590,7 +605,7 @@ class C3dToForce:
     def local_sensor_to_local_hand(sensor_data: np.array) -> np.array:
         """
         This function is used to convert the sensor data from the local axis to the local hand axis.
-        This a rotation along x axis whatever the elbow angle
+        This a rotation along x-axis whatever the elbow angle
         Parameters
         ----------
         sensor_data: np.array
@@ -619,9 +634,7 @@ class C3dToForce:
         """
         dof_index = self.dof_name_index[self.dof_name]
         muscle_index = self.muscle_name_index[self.muscle_name]
-        self.muscle_moment_arm = -self.model.musclesLengthJacobian(self.Q).to_array()[
-            muscle_index
-        ][dof_index]
+        self.muscle_moment_arm = -self.model.musclesLengthJacobian(self.Q).to_array()[muscle_index][dof_index]
 
     def get_muscle_force(self, local_data):
         """
@@ -631,9 +644,6 @@ class C3dToForce:
         local_data: array
             Contains the force and torque data in the local muscle axis
 
-        Returns
-        -------
-        The muscle force
         """
         self.muscle_force_vector = []
         for i in range(len(local_data[0])):
@@ -664,6 +674,16 @@ class C3dToForce:
             self.muscle_force_vector.append(muscle_force)
 
     def get_force(self, save: bool = False, plot: bool = True):
+        """
+        This function processes the data at the handle and computes the muscle force vector for each stimulation train.
+        It uses all the functions defined above.
+        Parameters
+        ----------
+        save: bool
+            If True, the data will be saved in a pickle file.
+        plot: bool
+            If True, the data will be plotted.
+        """
         self.get_data_at_handle()
         for i in range(len(self.handle_dictionary["x"])):
             force_data = np.array([self.handle_dictionary["x"][i], self.handle_dictionary["y"][i], self.handle_dictionary["z"][i]])
