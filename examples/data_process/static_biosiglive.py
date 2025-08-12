@@ -30,6 +30,24 @@ def save_in_pkl(data, file_path):
         pickle.dump(data, f)
 
 def get_muscles_forces(p_n, data_path, biomodel_path, freq_stim, save=True):
+    """
+    This function uses the MskFunctions class from biosiglive to compute the muscle forces.
+    Parameters
+    ----------
+    p_n: int
+        Participant number
+    data_path: str
+    biomodel_path: str
+    freq_stim: int
+        Frequency of the stimulation in Hz
+    save: bool
+        True if you want to save the results in a pickle file, False otherwise
+
+    Returns
+    -------
+    A dictionary containing the time, stim_time, force_biclong, force_bicshort, tau_list, muscles activation (act),
+    and residual torque (res).
+    """
     current_file_dir = Path(__file__).parent
     whole_biomodel_path = "/home/mickaelbegon/Documents/Stage_Florine/modelScaled/" + biomodel_path
     model = load_model(whole_biomodel_path)
@@ -40,11 +58,13 @@ def get_muscles_forces(p_n, data_path, biomodel_path, freq_stim, save=True):
 
     msk_functions = MskFunctions(model=whole_biomodel_path)
 
+    # Load participants data base
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     d_handle_rotation = p_data.iloc[p_n - 1]["handle_elbow_dist"] / 100 # Convert cm to m
 
     tau_list = []
 
+    # Get the maximum isometric forces for the muscles from the biomodel
     max_forces = [model.muscle(0).characteristics().forceIsoMax(), model.muscle(1).characteristics().forceIsoMax()]
     force_biclong = []
     force_bicshort = []
@@ -65,7 +85,15 @@ def get_muscles_forces(p_n, data_path, biomodel_path, freq_stim, save=True):
     force_biclong = slicing(force_biclong, time)
     force_bicshort = slicing(force_bicshort, time)
 
-    dict = {"time": time, "stim_time": stim_time, "force_biclong": force_biclong, "force_bicshort": force_bicshort, "tau_list": tau_list, "act": act, "res": res}
+    dict = {
+        "time": time,
+        "stim_time": stim_time,
+        "force_biclong": force_biclong,
+        "force_bicshort": force_bicshort,
+        "tau_list": tau_list,
+        "act": act,
+        "res": res
+    }
     if save:
         save_path = data_path[4:-3] + "pkl"
         saving_path = f"{current_file_dir}/pkl_files/{save_path}"
@@ -74,6 +102,19 @@ def get_muscles_forces(p_n, data_path, biomodel_path, freq_stim, save=True):
     return dict
 
 def slicing(data, time):
+    """
+    This function slices the data according to the time intervals provided. You will need this function to slice again
+    data after using MskFunctions static optimisation
+    Parameters
+    ----------
+    data: list
+    time: list[np.array]
+        The time data must already be sliced
+
+    Returns
+    -------
+    The sliced data
+    """
     first = 0
     sliced_data = []
     for i in range(len(time)):
@@ -83,6 +124,18 @@ def slicing(data, time):
     return sliced_data
 
 def auto_process(p_n_list, save=True, plot=False):
+    """
+    This function processes the data for each participant in the list. You can run it automatically choosing plot=False
+    and save=True, then check the results using the check_data function.
+    Parameters
+    ----------
+    p_n_list: list[int]
+        List of all participants numbers
+    save: bool
+        True if you want to save the results in a pickle file, False otherwise
+    plot: bool
+        True if you want to plot the results, False otherwise
+    """
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     for p_n in p_n_list:
         freq_str = p_data.iloc[p_n - 1]["freq_force"]
@@ -118,6 +171,14 @@ def auto_process(p_n_list, save=True, plot=False):
                 plt.show()
 
 def check_data(p_n_list):
+    """
+    This function plots the data for each participant in the list. You can use it to check the results from the
+    auto_process function.
+    Parameters
+    ----------
+    p_n_list: list[int
+        List of all participants numbers
+    """
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     for p_n in p_n_list:
         freq_str = p_data.iloc[p_n - 1]["freq_force"]

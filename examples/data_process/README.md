@@ -11,7 +11,7 @@ This class allows to :
 4. set zero level (cancel gravity effects) : `set_zero_level()`
 5. get stimulations times and indexes from c3d data : `get_stimulation()`
 6. slice data to separate each train (easier for identification) : `slice_data()`
-7. set to zero the "rest" part (for better identificaion optimisation) : `set_to_zero_slice()`
+7. set to zero the "rest" part (for better identification optimisation) : `set_to_zero_slice()`
 
 All these steps allows to get the force data at the handle `get_data_at_handle()`. To get force data at the muscle, you can either use the functions of the C3dToForce class or the static optimisation developped in `static_biosiglive.py`.
 
