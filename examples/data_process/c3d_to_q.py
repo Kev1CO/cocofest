@@ -5,7 +5,8 @@ import pickle
 
 from pyomeca import Analogs, Markers
 
-
+"""This class provides a method to load C3D files, extract marker data, and compute the elbow angle.
+- Please be aware that markers names can be different from mine, you can change them and their order in the dictionary markers_index."""
 class C3dToQ:
     def __init__(self, c3d_path: str | list[str]):
         self.markers_index = {"should_r": 0, "elbow_r": 1, "wrist_r": 2}
@@ -31,7 +32,7 @@ class C3dToQ:
         self.Q_deg: np.ndarray
         self.frequency_acquisition: int = 100  # Hz
         self.frequency_acquisition_stim: int = 10000  # Hz
-        self.average_time_difference: float = 0.0
+        self.average_time_difference: dict = {20: 0.0008799999999999671, 33: 0.0008608695652174252, 50: 0.0008739549839228076}
         self.frequency_stimulation: int = 50  # Hz
         self.data_stim: np.ndarray
         self.time_stim: np.ndarray
@@ -42,7 +43,6 @@ class C3dToQ:
         """
         Load C3D file(s) and extract marker data.
         """
-
         for path in self.c3d_path:
             c3d = Markers.from_c3d(path)
             self.markers_name = list(c3d.channel.data)
@@ -55,6 +55,9 @@ class C3dToQ:
                 self.data_dict[marker] = self.data[:3, i, :]
 
     def load_analog(self):
+        """
+        Load analog data from C3D file(s) and extract stimulation signal.
+        """
         for path in self.c3d_path:
             analog = Analogs.from_c3d(path)
             index = self._get_index("Electric Current.Channel_5", analog.channel.data)
@@ -62,31 +65,31 @@ class C3dToQ:
             self.time_stim = analog.time.data
 
     @staticmethod
-    def _get_index(name, lst):
+    def _get_index(object, lst):
         """
-        This function returns the index of the name in the list.
+        This function returns the index of the given object in the list.
         Parameters
         ----------
-        name: str | int | float
+        object: str | int | float
         lst: list
 
         Returns
         -------
-        The index of the name in the list
+        The index of the object in the list
         """
         indice = 0
         for i in range(len(lst)):
-            if name == lst[i]:
+            if object == lst[i]:
                 indice = i
         return indice
 
     def _set_index(self, lst_markers):
         """
-        This function create a list of new index based on the default index dict
+        This function creates a list of new indexes based on the default index dict
         Parameters
         ----------
         raw_data: Analogs
-            The raw data from the c3d file
+            The data from the c3d file
 
         Returns
         -------
@@ -124,11 +127,19 @@ class C3dToQ:
 
     @staticmethod
     def _get_segment_vector(start, end):
-
+        """Calculate the vector from start to end points."""
         return np.array(end) - np.array(start)
 
     @staticmethod
     def _projection_vectors(u, v):
+        """
+        This function projects two vectors onto a plane defined by them.
+        Parameters
+        ----------
+        u and v: array
+            The vectors to project
+        Returns the two projected vectors.
+        """
         u_proj = np.zeros_like(u)
         v_proj = np.zeros_like(v)
         e1 = np.zeros_like(u)
@@ -156,11 +167,8 @@ class C3dToQ:
         Calculate the angle between two vectors in radians.
         Parameters
         ----------
-        u: array
-            The first vector
-        v: array
-            The second vector
-
+        u and v: array
+            The two vectors to calculate the angle in between
         Returns
         -------
         Angle in radians
@@ -187,18 +195,16 @@ class C3dToQ:
             with open(path, "wb") as file:
                 pickle.dump(data, file)
 
-
-    def _get_stimulation(self, time, stimulation_signal, average_time_difference=None):
+    def _get_stimulation(self, time, stimulation_signal):
         """
-        This function detects the stimulation time and returns the time and index of the stimulation
+        This function detects the stimulation and returns the time and index of the stimulation. It is based on the
+        derivative's values of the stimulation signal.
         Parameters
         ----------
         time: array
             The time data
         stimulation_signal: array
             The stimulation signal
-        average_time_difference: float
-            The average time difference to add to the stimulation time
 
         Returns
         -------
@@ -228,9 +234,8 @@ class C3dToQ:
                 peaks.append(index)
         time_peaks = [time[peak] for peak in peaks]
 
-        if average_time_difference:
-            time_peaks = np.array(time_peaks) + average_time_difference
-            peaks = np.array(peaks) + int(self.average_time_difference * self.frequency_acquisition_stim)
+        time_peaks = np.array(time_peaks) + self.average_time_difference[self.frequency_stimulation]
+        peaks = np.array(peaks) + int(self.average_time_difference[self.frequency_stimulation] * self.frequency_acquisition_stim)
 
         if isinstance(time_peaks, np.ndarray):
             time_peaks = time_peaks.tolist()
@@ -240,8 +245,21 @@ class C3dToQ:
         return time_peaks, peaks
 
     def slice_data(self, data):
+        """
+        This function slices the data into trains based on the stimulation indexes. It detects the stimulation trains by
+        comparing the gap between two stimulation indexes. In the same stimulation train, the gap between two indexes is
+        pretty constant, whereas between two indexes of two different trains, the gap is larger (above delta).
+        Parameters
+        ----------
+        data
+            The data to slice
+
+        Returns
+        -------
+        The sliced time, sliced data and sliced stimulation time.
+        """
         self.load_analog()
-        stimulation_time, peaks_index = self._get_stimulation(self.time_stim, self.data_stim, self.average_time_difference)
+        stimulation_time, peaks_index = self._get_stimulation(self.time_stim, self.data_stim)
 
         sliced_time = []
         sliced_data = []
@@ -258,21 +276,10 @@ class C3dToQ:
             while i + 1 < len(peaks_index) and peaks_index[i + 1] - peaks_index[i] < delta:
                 i += 1
 
-            #j = int(peaks_index[i] * self.frequency_acquisition / self.frequency_acquisition_stim) #+15
-
-            #while data[j + 1] - data[j] < 0:
-                #j += 1
-
             if i + 1 >= len(peaks_index):
                 last = -1
             else:
                 last = peaks_index[i + 1] - 1
-
-            #last = j
-            #if i + 1 >= len(peaks_index):
-                #last = first + self.frequency_acquisition_stim * 2
-            #else:
-                #last = peaks_index[i + 1] - 1
 
             first = int(first * self.frequency_acquisition / self.frequency_acquisition_stim)
             last = first + 2 * self.frequency_acquisition if last == -1 else int(last * self.frequency_acquisition / self.frequency_acquisition_stim) + 1
@@ -289,6 +296,15 @@ class C3dToQ:
 
     @staticmethod
     def _set_time_continuity(sliced_stim_time, sliced_time):
+        """
+        This function sets the time continuity for the sliced data and stimulation time. It ensures that the time starts
+        from 0 for each slice and that the stimulation time is adjusted accordingly.
+        Parameters
+        ----------
+        sliced_stim_time: list[np.ndarray]
+        sliced_time: list[np.ndarray]
+
+        """
         sliced_stim_time[0] = np.array(sliced_stim_time[0]) - sliced_time[0][0]
         sliced_time[0] = np.array(sliced_time[0]) - sliced_time[0][0]
 
@@ -299,6 +315,13 @@ class C3dToQ:
         return sliced_time, sliced_stim_time
 
     def _get_q(self):
+        """
+        This function calculates the elbow angle in radians (Q_rad) based on the positions of the elbow, wrist, and
+        shoulder markers. It uses all the functions defined above.
+        Returns
+        -------
+
+        """
         self.load_c3d()
         self.forearm_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["wrist_r"])
         self.humerus_position = self._get_segment_vector(start=self.data_dict["elbow_r"], end=self.data_dict["should_r"])
@@ -310,18 +333,23 @@ class C3dToQ:
         return self.Q_rad
 
     def get_q_rad(self):
+        """This function returns the elbow angle in radians (Q_rad) by calling the _get_q method."""
         Q_rad = self._get_q()
         return Q_rad
 
     def get_q_deg(self):
+        """This function returns the elbow angle in degrees (Q_deg) by converting the radians to degrees."""
         Q_rad = self._get_q()
         return np.rad2deg(Q_rad)
 
     def get_time(self):
+        """This function returns the time data from the C3D file(s)."""
         self.load_c3d()
         return self.time
 
     def get_sliced_time_Q_rad(self):
+        """This function returns a dictionary containing the sliced time, sliced elbow angle in radians (Q_rad), and
+        sliced stimulation time."""
         Q_rad = self._get_q()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_rad)
         sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
@@ -329,6 +357,8 @@ class C3dToQ:
         return dictionary
 
     def get_sliced_time_Q_deg(self):
+        """This function returns a dictionary containing the sliced time, sliced elbow angle in degrees (Q_deg), and
+        sliced stimulation time."""
         Q_deg = self.get_q_deg()
         sliced_time, sliced_data, sliced_stim_time = self.slice_data(Q_deg)
         sliced_time, sliced_stim_time = self._set_time_continuity(sliced_stim_time, sliced_time)
@@ -354,6 +384,4 @@ if __name__ == "__main__":
     for i in range(len(dict["q"])):
         plt.plot(dict["time"][i], dict["q"][i])
         plt.scatter(dict["stim_time"][i], [0] * len(dict["stim_time"][i]), color="red")
-    #plt.show()
-    #"C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\c3d_file\\essais_mvt_16.05.25\\lucie_50Hz_250-300-350-400-450x2_21mA_doublet.c3d"
-    #"C:\Users\flori_4ro0b8\Documents\Stage_S2M\c3d_file\essais_mvt_16.05.25\lucie_50Hz_250-300-350-400-450x2_22mA.c3d"
+    plt.show()
