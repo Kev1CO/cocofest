@@ -96,6 +96,21 @@ def prepare_ocp(
     )
 
 def separate_trains(pickle_path, n):
+    """
+    This function separates the train of data into a train to identify the parameters and a train to test the identified parameters.
+    Parameters
+    ----------
+    pickle_path
+        The path to the pickle file containing the processed experiental data
+    n: int
+        The index of the train to separate (0 to len(time)-1)
+
+    Returns
+    -------
+    Two dictionaries: the first one contains the time, stim_time and forces for the training trains, the second one
+    contains the time, stim_time and forces for the test train
+
+    """
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
     stim_time = data["stim_time"]
@@ -146,6 +161,20 @@ def get_pickle_paths_from_participant(p_n):
     return pickle_path_list, data
 
 def optim_all_concat(p_n, muscle_name, plot=True, save=True):
+    """
+        This function identifies the parameters of the Ding 2007 model based on experimental data for a specific participant and muscle.
+        It identifies for all frequencies, meaning it will create a model for all frequencies together.
+        Parameters
+        ----------
+        p_n: int
+            Participant number
+        muscle_name: str
+            Muscle you want to use to identify parameters
+        plot: bool
+            If True, plot the results
+        save: bool
+            If True, save the results in a pickle file
+        """
     pickle_path_list, param = get_pickle_paths_from_participant(p_n)
     force_train_list = []
     time_train_list = []
@@ -247,6 +276,20 @@ def optim_all_concat(p_n, muscle_name, plot=True, save=True):
         )
 
 def optim_per_freq(p_n, muscle_name, plot=True, save=True):
+    """
+    This function identifies the parameters of the Ding 2007 model based on experimental data for a specific participant and muscle.
+    It identifies per frequency, meaning it will create a model for each frequency separately.
+    Parameters
+    ----------
+    p_n: int
+        Participant number
+    muscle_name: str
+        Muscle you want to use to identify parameters
+    plot: bool
+        If True, plot the results
+    save: bool
+        If True, save the results in a pickle file
+    """
     pickle_path_list, param = get_pickle_paths_from_participant(p_n)
 
     for i, pickle_path in enumerate(pickle_path_list):
@@ -332,6 +375,21 @@ def optim_per_freq(p_n, muscle_name, plot=True, save=True):
             )
 
 def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False, per_freq=False):
+    """
+    This function automatically identifies the parameters of the Ding 2007 model based on experimental data.
+    Parameters
+    ----------
+    p_n_list: list
+        Participant number list
+    muscle_name_list: list
+        Muscle you want to use to identify parameters
+    plot: bool
+        If True plot the results
+    save: bool
+        If True save the results in a pickle file
+    per_freq: bool
+        If True, identify parameters for each frequency separately, otherwise identify parameters for all frequencies concatenated
+    """
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             if per_freq:
@@ -340,6 +398,17 @@ def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False, per_fre
                 optim_all_concat(p_n, muscle_name=muscle_name, plot=plot, save=save)
 
 def check_data_id(p_n_list, muscle_name_list, per_freq=False):
+    """
+    This function plots the identified parameters from the pickle files created by the identification process.
+    Parameters
+    ----------
+    p_n_list: list
+        Participant numbers list
+    muscle_name_list: list
+        Muscle names list
+    per_freq: bool
+        If True, identify parameters for each frequency separately, otherwise identify parameters for all frequencies concatenated
+    """
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
@@ -388,6 +457,19 @@ def check_data_id(p_n_list, muscle_name_list, per_freq=False):
                 plt.show()
 
 def get_force_from_id_param(param_dict:dict, data_test:dict):
+    """
+    This function generates the force from the identified parameters (saved in a pickle file).
+    Parameters
+    ----------
+    param_dict: dict
+        Dictionary containing the identified parameters
+    data_test: dict
+        Dictionary containing the train of experimental data separated to test the identified parameters
+
+    Returns
+    -------
+     A dictionary that contains the generated force, time and stim_time.
+    """
     stim_time = data_test["stim_time"]
     stim_time = list(np.round(stim_time, 2))
     model = ModelMaker.create_model("ding2007", stim_time=stim_time, sum_stim_truncation=10)
@@ -416,7 +498,23 @@ def get_force_from_id_param(param_dict:dict, data_test:dict):
     }
     return data
 
-def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
+def loo_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
+    """
+    This function automatically runs the leave-one-out (LOO) method (copute_out() function) to compute the RMSE of the Out for each participant
+    and muscle in the lists. It can plot or save the results.
+    Parameters
+    ----------
+    p_n_list: list
+        Participant numbers list
+    muscle_name_list: list
+        Muscle names list
+    plot: bool
+        If True plot the results
+    save: bool
+        If True save the results in a pickle file
+    per_freq: bool
+        If True, compute the generated force for each frequency separately, otherwise ompute the generated force for all frequencies concatenated
+    """
     for p_n in p_n_list:
         p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
         for muscle_name in muscle_name_list:
@@ -435,7 +533,25 @@ def data_gap_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=Fa
                 compute_out(p_nb=p_nb, muscle_name=muscle_name, path=path, save=save, plot=plot, per_freq=per_freq)
 
 
-def compute_out(p_nb, muscle_name, path, save, plot, per_freq):
+def compute_out(p_nb, muscle_name, path, plot, save, per_freq):
+    """
+    This function computes the RMSE of the Out for each participant and muscle.
+    It can plot or save the results.
+    Parameters
+    ----------
+    p_nb: int
+        Participant number
+    muscle_name: str
+        Muscle name
+    path: str
+        Path to the pickle file containing the identified parameters
+    plot: bool
+        If True plot the results
+    save: bool
+        If True save the results in a pickle file
+    per_freq: bool
+        If True, compute the generated force for each frequency separately, otherwise ompute the generated force for all frequencies concatenated
+    """
     current_file_dir = Path(__file__).parent
     pickle_path = f"{current_file_dir}/id_force/{path}.pkl"
     with open(pickle_path, "rb") as f:
@@ -477,7 +593,18 @@ def compute_out(p_nb, muscle_name, path, save, plot, per_freq):
         with open(saving_pkl_path, "wb") as f:
             pickle.dump(dict, f)
 
-def check_data_gap(p_n_list, muscle_name_list, per_freq=False):
+def check_data_loo(p_n_list, muscle_name_list, per_freq=False):
+    """
+    This function plots the results of the leave-one-out (LOO) method.
+    Parameters
+    ----------
+    p_n_list: list
+        Participant numbers list
+    muscle_name_list: list
+        Muscle names list
+    per_freq: bool
+        If True, plot the results for each frequency separately, otherwise plot the results for all frequencies
+    """
     for p_n in p_n_list:
         for muscle_name in muscle_name_list:
             p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
@@ -534,5 +661,5 @@ def check_data_gap(p_n_list, muscle_name_list, per_freq=False):
 if __name__ == "__main__":
     #id_auto(p_n_list=[1], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=True)
     #check_data_id(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)
-    #data_gap_auto(p_n_list=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=False)
-    check_data_gap(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)
+    #loo_auto(p_n_list=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=False)
+    check_data_loo(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)
