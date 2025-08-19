@@ -2,35 +2,24 @@ import pickle
 
 import matplotlib.pyplot as plt
 from examples.data_process.c3d_to_q import C3dToQ
-from examples.data_process.c3d_to_force import C3dToForce
 import pandas as pd
 import ast
 from pathlib import Path
 
 
-def force_process(c3d_path: str|list[str], saving_pkl_path: str|list[str] = None, save: bool = True, plot: bool = False):
-    c3d_path_list = [c3d_path] if isinstance(c3d_path, str) else c3d_path
-    saving_pkl_list = [saving_pkl_path] if isinstance(saving_pkl_path, str) else saving_pkl_path
-    if len(c3d_path_list) != len(saving_pkl_list) and save:
-        raise ValueError("c3d_path and saving_pkl_path must have the same length to save")
-
-    for i in range(len(c3d_path_list)):
-        c3d_to_force = C3dToForce(
-            c3d_path=c3d_path_list[i],
-            calibration_matrix_path="matrix.txt",
-            saving_pickle_path=saving_pkl_list[i],
-            frequency_acquisition=10000,
-            frequency_stimulation=50,
-            rest_time=1,
-            model_path="C:\\Users\\flori_4ro0b8\\Documents\\Stage_S2M\\cocofest\\examples\\model_msk\\simplified_UL_Seth.bioMod",
-            elbow_angle=90,
-            muscle_name="BIC_long",
-            dof_name="r_ulna_radius_hand_r_elbow_flex_RotX",
-        )
-        c3d_to_force.get_data_at_handle()
-        c3d_to_force.get_force(save=save, plot=plot)
-
 def auto_process_motion(p_n_list, save=True, plot=False):
+    """
+    This function processes the motion c3d files for the specified participants.
+    You can choose to save the processed data in pickle files and/or plot the results.
+    Parameters
+    ----------
+    p_n_list: list
+        List of participant numbers to process.
+    save: bool
+        If True, saves the processed data in pickle files.
+    plot: bool
+        If True, plots the processed data.
+    """
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     for p_n in p_n_list:
         freq_str = p_data.iloc[p_n - 1]["freq_motion"]
@@ -69,6 +58,13 @@ def auto_process_motion(p_n_list, save=True, plot=False):
                 plt.show()
 
 def check_data_motion(p_n_list):
+    """
+    This function plots the processed motion data after being automatically ran with the auto_process_motion function.
+    Parameters
+    ----------
+    p_n_list: list
+        List of participant numbers to check.
+    """
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     for p_n in p_n_list:
         freq_str = p_data.iloc[p_n - 1]["freq_motion"]

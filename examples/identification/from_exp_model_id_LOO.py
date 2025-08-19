@@ -1,7 +1,3 @@
-"""
-This example demonstrates the way of identifying an experimental muscle force model based on Ding 2007 model.
-"""
-
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
@@ -12,12 +8,7 @@ import ast
 from bioptim import SolutionMerge, OdeSolver, OptimalControlProgram, ObjectiveFcn, Node, ControlType, ObjectiveList, \
     Solver
 
-from cocofest import (
-    DingModelPulseWidthFrequency,
-    IvpFes,
-    ModelMaker,
-    OcpFesId, FES_plot,
-)
+from cocofest import IvpFes, ModelMaker, OcpFesId, FES_plot
 
 from cocofest.identification.identification_method import DataExtraction
 
@@ -38,7 +29,6 @@ def prepare_ocp(
     pulse_width_values,
     key_parameter_to_identify,
     tracked_data,
-    stim_time
 ):
     n_shooting = model.get_n_shooting(final_time)
 
@@ -146,6 +136,18 @@ def set_time_continuity(stim_time, time):
     return stim_time, time
 
 def get_pickle_paths_from_participant(p_n):
+    """
+    This function retrieves the pickle paths and data for a specific participant based on their number.
+    Parameters
+    ----------
+    p_n: int
+        Participant number
+
+    Returns
+    -------
+    The list of pickle path to the participant's c3d files, and a dictionary containing the frequency and seeds used
+    for the participant.
+    """
     p_data = pd.read_csv("/home/mickaelbegon/Documents/Stage_Florine/Data/data_participants.csv", sep=";")
     freq_str = p_data.iloc[p_n - 1]["freq_force"]
     freq_list = ast.literal_eval(freq_str)
@@ -239,7 +241,6 @@ def optim_all_concat(p_n, muscle_name, plot=True, save=True):
         final_time,
         pulse_width,
         tracked_data=tracked_data,
-        stim_time=stim_time,
         key_parameter_to_identify=[
             "km_rest",
             "tau1_rest",
@@ -272,7 +273,6 @@ def optim_all_concat(p_n, muscle_name, plot=True, save=True):
             show_bounds=False,
             show_stim=True,
             stim_time=stim_time,
-            # exp_data=True,
         )
 
 def optim_per_freq(p_n, muscle_name, plot=True, save=True):
@@ -331,7 +331,6 @@ def optim_per_freq(p_n, muscle_name, plot=True, save=True):
             final_time,
             pulse_width_values_train,
             tracked_data=tracked_data,
-            stim_time=stim_time,
             key_parameter_to_identify=[
                 "km_rest",
                 "tau1_rest",
@@ -371,7 +370,6 @@ def optim_per_freq(p_n, muscle_name, plot=True, save=True):
                 show_bounds=False,
                 show_stim=True,
                 stim_time=stim_time,
-                # exp_data=True,
             )
 
 def id_auto(p_n_list=None, muscle_name_list=None, plot=True, save=False, per_freq=False):
@@ -500,7 +498,7 @@ def get_force_from_id_param(param_dict:dict, data_test:dict):
 
 def loo_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
     """
-    This function automatically runs the leave-one-out (LOO) method (copute_out() function) to compute the RMSE of the Out for each participant
+    This function automatically runs the leave-one-out (LOO) method (compute_out() function) to compute the RMSE of the Out for each participant
     and muscle in the lists. It can plot or save the results.
     Parameters
     ----------
@@ -513,7 +511,7 @@ def loo_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
     save: bool
         If True save the results in a pickle file
     per_freq: bool
-        If True, compute the generated force for each frequency separately, otherwise ompute the generated force for all frequencies concatenated
+        If True, compute the generated force for each frequency separately, otherwise compute the generated force for all frequencies concatenated
     """
     for p_n in p_n_list:
         p_nb = str(p_n) if len(str(p_n)) == 2 else "0" + str(p_n)
@@ -532,15 +530,14 @@ def loo_auto(p_n_list, muscle_name_list, plot=True, save=False, per_freq=False):
                 path = f"p{p_nb}_force_{muscle_name}"
                 compute_out(p_nb=p_nb, muscle_name=muscle_name, path=path, save=save, plot=plot, per_freq=per_freq)
 
-
 def compute_out(p_nb, muscle_name, path, plot, save, per_freq):
     """
     This function computes the RMSE of the Out for each participant and muscle.
     It can plot or save the results.
     Parameters
     ----------
-    p_nb: int
-        Participant number
+    p_nb: str
+        Participant number as a string
     muscle_name: str
         Muscle name
     path: str
@@ -550,7 +547,7 @@ def compute_out(p_nb, muscle_name, path, plot, save, per_freq):
     save: bool
         If True save the results in a pickle file
     per_freq: bool
-        If True, compute the generated force for each frequency separately, otherwise ompute the generated force for all frequencies concatenated
+        If True, compute the generated force for each frequency separately, otherwise compute the generated force for all frequencies concatenated
     """
     current_file_dir = Path(__file__).parent
     pickle_path = f"{current_file_dir}/id_force/{path}.pkl"
@@ -659,7 +656,7 @@ def check_data_loo(p_n_list, muscle_name_list, per_freq=False):
 
 
 if __name__ == "__main__":
-    #id_auto(p_n_list=[1], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=True)
+    id_auto(p_n_list=[8], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=True)
     #check_data_id(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)
     #loo_auto(p_n_list=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], muscle_name_list=["biclong", "bicshort"], plot=False, save=True, per_freq=False)
     check_data_loo(p_n_list=[3], muscle_name_list=["biclong", "bicshort"], per_freq=False)

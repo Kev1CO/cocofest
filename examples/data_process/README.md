@@ -38,3 +38,7 @@ This class allows to :
 5. choose to get the angle either in degrees or radians : `get_q_deg()` or `get_q_rad()`
 6. slice data to separate each train (easier for identification) : `slice_data()`  
 7. get the sliced data : `get_sliced_time_Q_deg()` or `get_sliced_time_Q_rad()`
+
+The automatic functions to process motion c3d files are in the ython file : `data_processing.py`.
+1. You can automatically process the files by using the `auto_process_motion()` function, you have to specify the participant number and if you want to plot or save the results (you don't need to provide pickle paths, they will be automatically generated).
+2. You can check/plot the results by using the `check_data_motion()` function, you only have to specify the participant number you want to check.
