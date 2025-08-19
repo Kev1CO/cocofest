@@ -261,17 +261,6 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
     for i in range(len(q_target)):
         final_time.append(time[i][-1] - time[i][0])
 
-    # q_copy = q_target[:4] + q_target[5:]
-    # time_copy = []
-    # for i in range(len(q_copy)):
-    #     q_copy[i] = np.concatenate(([q_copy[i][0]], q_copy[i], [q_copy[i][-1]]))
-    #     time_copy.append(np.arange(0, len(q_copy[i])*0.01, 0.01))
-    # for i in range(len(time_copy)-1):
-    #     time_copy[i+1] = time_copy[i+1] + (time_copy[i][-1] - time_copy[i+1][0])
-    # dict = {"time": time_copy, "q_rad": q_copy}
-    # with open("data2.pkl", "wb") as file:
-    #     pickle.dump(dict, file)
-
     for i in range(len(q_target)):
         plt.plot(time[i], q_target[i])
     plt.show()
@@ -350,8 +339,5 @@ if __name__ == "__main__":
               "../model_msk/p05_scaling_scaled.bioMod",
               "../model_msk/p05_scaling_scaled_modified.bioMod",
               "../model_msk/p05_scaling_scaled_modified.bioMod"]
-
-    with open("data2.pkl", "rb") as f:
-        data = pickle.load(f)
 
     main(data_low=data_low, data_up=data_up, model_paths=models, bounds_list = ["low", "low", "low", "low", "low", "up", "up"], plot=True)

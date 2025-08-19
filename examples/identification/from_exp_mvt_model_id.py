@@ -21,11 +21,7 @@ from bioptim import (
 )
 
 from cocofest.identification.identification_method import DataExtraction
-from cocofest import (
-    DingModelPulseWidthFrequency,
-    FesMskModel,
-    OcpFesId,
-)
+from cocofest import DingModelPulseWidthFrequency, FesMskModel, OcpFesId
 
 from examples.data_process.c3d_to_q import C3dToQ
 
