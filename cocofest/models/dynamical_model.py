@@ -131,111 +131,24 @@ class FesMskModel(BiorbdModel):
         return self._name
 
     def get_passive_torque(self, theta, theta_dot):
-
-        k1 = 0.31936218
-        k2 = 0.00102681
-        k3 = 0.01222197
-        k4 = 9.99959244
-        theta_max = 2.02248865
-        theta_min = 0.49999636
-        k1 = 0.43919893
-        k2 = 0.00101457
-        k3 = 0.00100078
-        k4 = 14.05330065
-        theta_max = 2.00000496
-        theta_min = 0.49999865
-        k1 = 0.00742484
-        k2 = 0.00223747
-        k3 = 0.00100167
-        k4 = 25.471912
-        theta_max = 2.24729024
-        theta_min = 0.18412647
-        k1 = 0.05191881
-        k2 = 0.00114811
-        k3 = 0.0010015
-        k4 = 21.29188453
-        theta_max = 2.18734733
-        theta_min = 0.40881427
-        k1 = 0.26208257
-        k2 = 9.99998504
-        k3 = 3.39228857
-        k4 = 0.00100025
-        theta_max = 2.0000011
-        theta_min = 0.49999987
-        k1 = 0.24395358
-        k2 = 0.00103129
-        k3 = 0.000194639
-        k4 = 24.41585281
-        kc1 = 1.05713656
-        kc2 = 0.19654403
-        theta_max = 2.27074652
-        theta_min = 0.49997778
-        k1 = 0.30217815 #k=0.9
-        k2 = 0.00102294
-        k3 = 0.00564691
-        k4 = 24.12280173
-        kc1 = 1.84481101
-        kc2 = 0.12915622
-        theta_max = 2.30904925
-        theta_min = 0.49997775
-        k1 = 0.23845744 #k=0.85
-        k2 = 0.0010318
-        k3 = 0.00100285
-        k4 = 22.53819414
-        kc1 = 1.11427573
-        kc2 = 0.16773932
-        theta_max = 2.21780163
-        theta_min = 0.49997263
-        k1 = 0.23556646 #k=0.8 max
-        k2 = 0.00103206
-        k3 = 0.00100176
-        k4 = 21.54613035
-        kc1 = 1.14183095
-        kc2 = 0.15589504
-        theta_max = 2.20185039
-        theta_min = 0.49996896
-        k1 = 0.3623444 #k=0.85
-        k2 = 0.00101858
-        k3 = 0.00430086
-        k4 = 23.91321625
-        kc1 = 1.99987948
-        kc2 = 0.1570301
-        theta_max = 2.2971145
-        theta_min = 0.49998832
-        k1 = 0.41858272  # k=8
-        k2 = 0.00101626
-        k3 = 0.00378704
-        k4 = 23.94017168
-        kc1 = 1.99989723
-        kc2 = 0.23019732
-        theta_max = 2.29635469
-        theta_min = 0.49999104
-        k1 = 0.33655981  # k=0.5
-        k2 = 0.00102635
-        k3 = 0.00100043
-        k4 = 23.62753997
-        kc1 = 1.99997016
-        kc2 = 1.99978018
-        theta_max = 2.29025762
-        theta_min = 0.49998263
-        k1 = 0.24395358 #k=1
-        k2 = 0.00103129
-        k3 = 0.00194639
-        k4 = 24.41585281
-        kc1 = 1.05713656
-        kc2 = 0.19654403
-        theta_max = 2.27074652
-        theta_min = 0.49997778
+        k1 = 0.10000623
+        k2 = 5.00041991
+        k3 = 1.00007728
+        k4 = 6.99990535
+        kc1 = 0.17628383
+        kc2 = 1.42997773
+        theta_max = 2.40089727
+        theta_min = 0.43825389
         #c = - kc1 * np.exp(-kc2 * (theta - theta_min)) + kc3 * np.exp(kc4 * (theta - theta_max))
         def sigmoide(x):
             return 1 / (1 + exp(-x))
         #c=0.1
         c = (sigmoide((theta - theta_max) / kc2) + sigmoide(-(theta - theta_min) / kc1))
-        #theta_dot = if_else(theta_dot > 0, theta_dot, 0)  # Ensure that the velocity is positive
-        passive_torque = k1 * exp(-k2 * (theta - theta_min)) * sigmoide(-(theta - theta_min)) - k3 * exp(k4 * (theta - theta_max)) * sigmoide(theta - theta_max) #- c * theta_dot
+        passive_torque = (k1 * exp(-k2 * (theta - theta_min)) * sigmoide(-(theta - theta_min))
+                          - k3 * exp(k4 * (theta - theta_max)) * sigmoide(theta - theta_max)
+                          - c * theta_dot)
         #(k1 * exp(-k2 * (theta - theta_min)) - k3 * exp(k4 * (theta - theta_max)) - (c * theta_dot))
         #k1 * exp(-k2 * (theta - theta_min)) * (1 - s) - k3 * exp(k4 * (theta - theta_max)) * s - (c * theta_dot))
-        # passive_torque = 0
         return passive_torque
 
     def muscle_dynamic(
