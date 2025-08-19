@@ -2,9 +2,7 @@ import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
-import casadi
-from casadi import exp, fabs
-from scipy.odr import quadratic
+from casadi import exp
 
 from bioptim import (
     OdeSolver,
@@ -16,13 +14,10 @@ from bioptim import (
     BoundsList,
     InitialGuessList,
     InterpolationType,
-    ParameterList,
     Solver,
     SolutionMerge,
     CostType, DynamicsList, PhaseDynamics, VariableScaling, SelectionMapping,
     Dependency,
-    Shooting,
-    SolutionIntegrator, Solution,
 )
 
 from cocofest.identification.identification_method import DataExtraction
@@ -30,8 +25,6 @@ from cocofest import (
     DingModelPulseWidthFrequency,
     FesMskModel,
     OcpFesId,
-    OcpFesMsk,
-    CustomObjective, OcpFesIdMultibody,
 )
 
 from examples.data_process.c3d_to_q import C3dToQ
@@ -219,11 +212,6 @@ def prepare_ocp(
 
     x_init.add(key="q", initial_guess=target, interpolation=InterpolationType.EACH_FRAME)
 
-    # objective_functions.add(ObjectiveFcn.Lagrange.MINIMIZE_CONTROL, key="tau", weight=1, quadratic=True, node=Node.ALL_SHOOTING)
-
-    # u_init.add(key="tau", initial_guess=np.zeros((models[0].nb_tau, n_shooting)), interpolation=InterpolationType.EACH_FRAME)
-    # u_bounds.add(key="tau", min_bound=-10.0, max_bound=10.0, interpolation=InterpolationType.EACH_FRAME)
-
     # Parameters definition
     additional_key_settings = OcpFesId.set_default_values(model=model.muscles_dynamics_model[0])
 
@@ -246,7 +234,7 @@ def prepare_ocp(
             param_scaling = parameters[param_key].scaling.scaling
             param_reduced = parameters[param_key].cx
             fes_models_for_param_key = [
-                model.muscles_dynamics_model[i] for i in range(len(model.muscles_dynamics_model)) if model.muscles_dynamics_model[i].muscle_name in param_key
+                model.muscles_dynamics_model[i] for i in range(len(model.muscles_dynamics_model))
             ]
             # reshaped_param = casadi.MX(param_reduced * param_scaling).T
             parameters[param_key].function(
@@ -349,14 +337,14 @@ def main(plot=True, total_cycles=1):
     if passive_torque_plot:
         omega = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["qdot"][0]
 
-        k1 = 0.24395358  # k=1
-        k2 = 0.00103129
-        k3 = 0.00194639
-        k4 = 24.41585281
-        kc1 = 0.105713656
-        kc2 = 0.19654403
-        theta_max = 2.27074652
-        theta_min = 0.49997778
+        k1 = 0.10000623
+        k2 = 5.00041991
+        k3 = 1.00007728
+        k4 = 6.99990535
+        kc1 = 0.17628383
+        kc2 = 1.42997773
+        theta_max = 2.40089727
+        theta_min = 0.43825389
         def sigmoide(x):
             return 1 / (1 + exp(-x))
         #c = [-kc1 * np.exp(kc2 * (sol_Q[i] - theta_min)) + kc3 * np.exp(kc4 * (sol_Q[i] - theta_max)) for i in range(sol_Q.shape[0])]
@@ -366,10 +354,15 @@ def main(plot=True, total_cycles=1):
         c = [(sigmoide((theta[i] - theta_max) / kc2) + sigmoide(-(theta[i] - theta_min) / kc1))
              for i in range(sol_Q.shape[0])]
         #c = [ 0.1 for i in range(sol_Q.shape[0])]
-        low = [k1 * exp(-k2 * (theta[i] - theta_min)) * sigmoide(-(theta[i] - theta_min)) for i in range(sol_Q.shape[0])]
-        high = [- k3 * exp(k4 * (theta[i] - theta_max)) * sigmoide(theta[i] - theta_max) for i in range(sol_Q.shape[0])]
-        damping = [- c[i] * omega[i] for i in range(sol_Q.shape[0])]
-        tau = [k1 * exp(-k2 * (theta[i] - theta_min)) * sigmoide(-(theta[i] - theta_min)) - k3 * exp(k4 * (theta[i] - theta_max)) * sigmoide(theta[i] - theta_max) #- c[i] * omega[i]
+        low = [k1 * exp(-k2 * (theta[i] - theta_min)) * sigmoide(-(theta[i] - theta_min))
+               for i in range(sol_Q.shape[0])]
+        high = [- k3 * exp(k4 * (theta[i] - theta_max)) * sigmoide(theta[i] - theta_max)
+                for i in range(sol_Q.shape[0])]
+        damping = [- c[i] * omega[i]
+                    for i in range(sol_Q.shape[0])]
+        tau = [k1 * exp(-k2 * (theta[i] - theta_min)) * sigmoide(-(theta[i] - theta_min))
+               - k3 * exp(k4 * (theta[i] - theta_max)) * sigmoide(theta[i] - theta_max)
+               - c[i] * omega[i]
                for i in range(sol_Q.shape[0])]
         #tau = [k1*exp(-k2 * (theta[i] - theta_min)) - k3 * exp(k4 * (theta[i] - theta_max)) - c * omega[i] for i in range(sol_Q.shape[0])]
         # s = [1 / (1 + exp(-(omega[i]))) for i in range(sol_Q.shape[0])]

@@ -1,3 +1,5 @@
+import pickle
+
 from bioptim import DynamicsList, PhaseDynamics, \
     OptimalControlProgram, BoundsList, InitialGuessList, OdeSolver, ControlType, ObjectiveList, ObjectiveFcn, Node, \
     CostType, Solver, SolutionMerge, BiorbdModel, InterpolationType, \
@@ -9,7 +11,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from examples.data_process.c3d_to_q import C3dToQ
 from cocofest.models.muscle_driven_passive_torque import MuscleDrivenPassiveTorque
-
 
 
 def slicing(q, time, stim_time):
@@ -54,44 +55,44 @@ def prepare_ocp(model_path,
     ):
     additional_key_settings = {
         "k1": {
-            "initial_guess": 1,
-            "min_bound": 0.001,
+            "initial_guess": 0.5,
+            "min_bound": 0.1,
             "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k1,
             "scaling": 1
         },
         "k2": {
-            "initial_guess": 1,
-            "min_bound": 0.001,
+            "initial_guess": 5,
+            "min_bound": 5,
             "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k2,
             "scaling": 1
         },
         "k3": {
             "initial_guess": 1,
-            "min_bound": 0.001,
+            "min_bound": 1,
             "max_bound": 10,
             "function": MuscleDrivenPassiveTorque.set_k3,
             "scaling": 1
         },
         "k4": {
-            "initial_guess": 1,
-            "min_bound": 0.001,
-            "max_bound": 100,
+            "initial_guess": 5,
+            "min_bound": 1,
+            "max_bound": 7,
             "function": MuscleDrivenPassiveTorque.set_k4,
             "scaling": 1
         },
         "kc1": {
             "initial_guess": 0.1,
             "min_bound": 0.01,
-            "max_bound": 0.3,
+            "max_bound": 2,
             "function": MuscleDrivenPassiveTorque.set_kc1,
             "scaling": 1
         },
         "kc2": {
             "initial_guess": 0.1,
             "min_bound": 0.01,
-            "max_bound": 0.3,
+            "max_bound": 2,
             "function": MuscleDrivenPassiveTorque.set_kc2,
             "scaling": 1
         },
@@ -260,6 +261,17 @@ def main(model_paths, data_low, data_up, bounds_list, plot=True):
     for i in range(len(q_target)):
         final_time.append(time[i][-1] - time[i][0])
 
+    # q_copy = q_target[:4] + q_target[5:]
+    # time_copy = []
+    # for i in range(len(q_copy)):
+    #     q_copy[i] = np.concatenate(([q_copy[i][0]], q_copy[i], [q_copy[i][-1]]))
+    #     time_copy.append(np.arange(0, len(q_copy[i])*0.01, 0.01))
+    # for i in range(len(time_copy)-1):
+    #     time_copy[i+1] = time_copy[i+1] + (time_copy[i][-1] - time_copy[i+1][0])
+    # dict = {"time": time_copy, "q_rad": q_copy}
+    # with open("data2.pkl", "wb") as file:
+    #     pickle.dump(dict, file)
+
     for i in range(len(q_target)):
         plt.plot(time[i], q_target[i])
     plt.show()
@@ -338,5 +350,8 @@ if __name__ == "__main__":
               "../model_msk/p05_scaling_scaled.bioMod",
               "../model_msk/p05_scaling_scaled_modified.bioMod",
               "../model_msk/p05_scaling_scaled_modified.bioMod"]
+
+    with open("data2.pkl", "rb") as f:
+        data = pickle.load(f)
 
     main(data_low=data_low, data_up=data_up, model_paths=models, bounds_list = ["low", "low", "low", "low", "low", "up", "up"], plot=True)
