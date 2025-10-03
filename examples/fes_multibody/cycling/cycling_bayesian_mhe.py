@@ -389,30 +389,28 @@ def bayes_optimize_weights(
     _last_saved_len = max(bo_log.keys()) + 1 if bo_log else 0
 
     def _save_logs_snapshot(force=False):
-        """Persist logs every `save_every` iterations, atomically."""
         nonlocal _last_saved_len
         if not force and (len(bo_log) - _last_saved_len) < save_every:
             return
         _last_saved_len = len(bo_log)
 
-        # 1) pickle (small) – write to .tmp then replace
         with open(pkl_tmp, "wb") as f:
             pickle.dump(bo_log, f, protocol=pickle.HIGHEST_PROTOCOL)
         pkl_tmp.replace(pkl_path)
 
-        # 2) numeric arrays (fast if not compressed)
         if bo_log:
             idx = np.array(sorted(bo_log.keys()))
             metrics = np.array([float(bo_log[i]["metric"]) for i in idx], dtype=float)
             weights_mat = np.array([[float(bo_log[i][name]) for name in muscle_names] for i in idx], dtype=float)
             save_fn = np.savez_compressed if compress_arrays else np.savez
-            save_fn(
-                npz_tmp,
-                iteration=idx,
-                muscle_names=np.array(muscle_names),
-                weights=weights_mat,
-                metric=metrics,
-            )
+
+            with open(npz_tmp, "wb") as f:
+                save_fn(f,
+                        iteration=idx,
+                        muscle_names=np.array(muscle_names),
+                        weights=weights_mat,
+                        metric=metrics,
+                )
             npz_tmp.replace(npz_path)
 
     # --- BO objective ---
