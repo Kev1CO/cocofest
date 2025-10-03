@@ -297,8 +297,8 @@ def bayes_optimize_weights(
 
     pkl_path = log_dir / "bo_iter_log.pkl"
     npz_path = log_dir / "bo_iter_arrays.npz"
-    pkl_tmp  = log_dir / "bo_iter_log.pkl.tmp"
-    npz_tmp  = log_dir / "bo_iter_arrays.npz.tmp"
+    pkl_tmp = log_dir / "bo_iter_log.pkl.tmp"
+    npz_tmp = log_dir / "bo_iter_arrays.tmp.npz"
 
     # Clean any orphan .tmp files from a previous crash
     for _p in (pkl_tmp, npz_tmp):
@@ -315,7 +315,7 @@ def bayes_optimize_weights(
     # Try resuming from previous files
     if resume:
         try:
-            if npz_path.exists():
+            if npz_path.is_file():  # <— only load if it's an actual file
                 arr = np.load(npz_path, allow_pickle=False)
                 iteration = arr["iteration"]
                 muscle_names_prev = [s for s in arr["muscle_names"]]
@@ -330,7 +330,10 @@ def bayes_optimize_weights(
                         key = tuple(round(float(entry[name]), 8) for name in muscle_names)
                         if np.isfinite(entry["metric"]):
                             _cache[key] = -float(entry["metric"])  # loss = -metric
-            elif pkl_path.exists():
+            elif npz_path.exists() and npz_path.is_dir():
+                print(f"[BO] Warning: '{npz_path}' is a directory, not a file. "
+                      "Skipping numeric resume. Remove/rename this directory to enable npz resume.")
+            elif pkl_path.is_file():
                 with open(pkl_path, "rb") as f:
                     bo_prev = pickle.load(f)
                 for i, entry in sorted(bo_prev.items()):
@@ -394,23 +397,24 @@ def bayes_optimize_weights(
             return
         _last_saved_len = len(bo_log)
 
+        # 1) pickle – write to .tmp then replace
         with open(pkl_tmp, "wb") as f:
             pickle.dump(bo_log, f, protocol=pickle.HIGHEST_PROTOCOL)
         pkl_tmp.replace(pkl_path)
 
+        # 2) numeric arrays – write to .tmp.npz then replace
         if bo_log:
             idx = np.array(sorted(bo_log.keys()))
             metrics = np.array([float(bo_log[i]["metric"]) for i in idx], dtype=float)
             weights_mat = np.array([[float(bo_log[i][name]) for name in muscle_names] for i in idx], dtype=float)
             save_fn = np.savez_compressed if compress_arrays else np.savez
-
-            with open(npz_tmp, "wb") as f:
-                save_fn(f,
-                        iteration=idx,
-                        muscle_names=np.array(muscle_names),
-                        weights=weights_mat,
-                        metric=metrics,
-                )
+            save_fn(
+                npz_tmp,  # ends with .npz, so NumPy won't append another
+                iteration=idx,
+                muscle_names=np.array(muscle_names),
+                weights=weights_mat,
+                metric=metrics,
+            )
             npz_tmp.replace(npz_path)
 
     # --- BO objective ---
