@@ -690,9 +690,9 @@ def set_fes_model(model_path, stim_time):
     # ------------------------------------------------------ #
     # Muscle         |  PCSA (cm²) | Fiber proportion (I/II) |
     # ------------------------------------------------------ #
-    # Rectus femoris |    10.8     |          35/65          |
+    # Rectus femoris |    10.88    |          35/65          |
     # Biceps         |    7.33     |          38/62          |
-    # Triceps        |    15.56    |          44/56          |
+    # Triceps        |    10.87    |          44/56          |
     # Delt_ant       |    2.54     |          47/53          |
     # Delt_post      |    2.73     |          56/44          |
     # ------------------------------------------------------ #
@@ -704,7 +704,7 @@ def set_fes_model(model_path, stim_time):
 
     parameter_dict = {
         "Biceps": {"Fmax": 149, "a_scale": 3314.7, "alpha_a": -5.6 * 10e-2, "tau_fat": 179.6},
-        "Triceps": {"Fmax": 617, "a_scale": 7036.3, "alpha_a": -2.4 * 10e-2, "tau_fat": 76.2},
+        "Triceps": {"Fmax": 262, "a_scale": 4915.5, "alpha_a": -3.4 * 10e-2, "tau_fat": 109.1},
         "Delt_ant": {"Fmax": 48, "a_scale": 1148.6, "alpha_a": -1.4 * 10e-1, "tau_fat": 445.5},
         "Delt_post": {"Fmax": 51, "a_scale": 1234.5, "alpha_a": -1.1 * 10e-1, "tau_fat": 342.7},
     }
@@ -1023,10 +1023,10 @@ if __name__ == "__main__":
 
     main(
         stimulation_frequency=30,
-        n_total_cycle=1,
+        n_total_cycle=3,
         n_cycles_simultaneous=[2],  # [2, 3, 4, 5]
-        resistive_torque=-0.3,  # (N.m)
-        cost_fun_weight=[(1, 0, 0)],  # (min_force, min_fatigue, min_control)
+        resistive_torque=-0.27,  # (N.m)
+        cost_fun_weight=[(0, 1, 0)],  # (min_force, min_fatigue, min_control)
         init_guess=False,
         save=False,
     )

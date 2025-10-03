@@ -27,9 +27,9 @@ from bioptim import (
 import cycling_pulse_width_mhe as base
 
 
-def minimize_muscle_fatigue(controller: PenaltyController, key) -> MX:
+def minimize_overall_muscle_fatigue(controller: PenaltyController, muscle_weights: dict) -> MX:
     """
-    Minimize the muscle fatigue.
+    Minimize the overall muscle fatigue.
 
     Parameters
     ----------
@@ -38,15 +38,17 @@ def minimize_muscle_fatigue(controller: PenaltyController, key) -> MX:
 
     Returns
     -------
-    The force scaling factor difference
+    The sum of each force scaling factor
     """
     muscle_name_list = controller.model.bio_model.muscle_names
     muscle_model = controller.model.muscles_dynamics_model
-    muscle_index = muscle_name_list.index(key[2:])  # key is like "A_muscleName"
-    muscle_a_scale_rest = muscle_model[muscle_index].a_scale
-    muscle_fatigue = vertcat(1 - (controller.states[key].cx / muscle_a_scale_rest))
+    muscle_fatigue = vertcat(
+        *[
+            muscle_weights[x] * (1 - (controller.states["A_" + muscle_name_list[x]].cx / muscle_model[x].a_scale))
+            for x in range(len(muscle_name_list))
+        ]
+    )
     return muscle_fatigue
-
 
 def set_objective_functions(muscle_fatigue_key, cost_fun_weight, target):
     objective_functions = ObjectiveList()
@@ -64,15 +66,14 @@ def set_objective_functions(muscle_fatigue_key, cost_fun_weight, target):
                 f"cost_fun_weight must be length 1 or {len(muscle_fatigue_key)}, got {len(cost_fun_weight)}"
             )
 
-    for key, w in zip(muscle_fatigue_key, weights):
-        objective_functions.add(
-            minimize_muscle_fatigue,
-            custom_type=ObjectiveFcn.Lagrange,
-            key=key,
-            node=Node.ALL,
-            weight=10000 * w,
-            quadratic=True,
-        )
+    objective_functions.add(
+        minimize_overall_muscle_fatigue,
+        custom_type=ObjectiveFcn.Lagrange,
+        muscle_weights=weights,
+        node=Node.ALL,
+        weight=10000,
+        quadratic=True,
+    )
 
     # Regulation function
     objective_functions.add(
@@ -190,12 +191,7 @@ def run_optim_bo(
     nmpc = prepare_nmpc_bo(model, mhe_info, cycling_info, sim_cond)
 
     # --- IPOPT settings --- #
-    solver = Solver.IPOPT(show_online_optim=False, _max_iter=1000, show_options=dict(show_bounds=True))
-    solver.set_warm_start_init_point("yes")
-    solver.set_mu_init(1e-2)
-    solver.set_tol(1e-6)
-    solver.set_dual_inf_tol(1e-6)
-    solver.set_constr_viol_tol(1e-6)
+    solver = Solver.IPOPT(show_online_optim=False, _max_iter=500, show_options=dict(show_bounds=True))
     solver.set_linear_solver("ma57" if platform == "linux" else "mumps")
 
     # Plot penalties
@@ -232,7 +228,6 @@ def run_optim_bo(
             out += (sol,)
         return out if len(out) > 1 else out[0]
 
-
 def bayes_optimize_weights(
     mhe_info,
     cycling_info,
@@ -246,19 +241,32 @@ def bayes_optimize_weights(
     use_simplex=False,
     init_guess_file_path=None,
     fixed_weights=None,
+    save_every=5,
+    compress_arrays=False,
+    resume=True,
+    use_checkpoint=True,
 ):
     """
     Bayesian optimize per-muscle weights on A_* (fatigue/activation states).
     Maximizes #turns before failing (we minimize its negative).
 
-    If use_simplex=True, weights are softmax(x) and sum to 1 (relative importance).
-    'fixed_weights' lets you pin certain muscles to a given value (e.g., {"delt_ant": 1.0}).
-    NOTE: With use_simplex=True, fixed weights reduce the free mass (1 - sum_fixed).
+    Improvements:
+    - Atomic, throttled saves (pkl + numeric npz)
+    - On-disk resume (cache + x0/y0) from prior runs
+    - Optional skopt checkpointing
     """
+
+    # Optional checkpointing
+    if use_checkpoint:
+        try:
+            from skopt.callbacks import CheckpointSaver
+        except Exception:
+            CheckpointSaver = None
+            use_checkpoint = False
 
     fixed_weights = dict(fixed_weights or {})
 
-    # Build a temp model to get muscle order
+    # --- Build a temp model to get muscle order ---
     stim_time_tmp = list(
         np.linspace(
             0,
@@ -273,37 +281,70 @@ def bayes_optimize_weights(
     # Validate fixed keys
     invalid = [k for k in fixed_weights.keys() if k not in muscle_names]
     if invalid:
-        raise ValueError(f"fixed_weights contains unknown muscles: {invalid}. " f"Known muscles: {muscle_names}")
+        raise ValueError(
+            f"fixed_weights contains unknown muscles: {invalid}. Known muscles: {muscle_names}"
+        )
 
     # Split free vs fixed
     free_names = [n for n in muscle_names if n not in fixed_weights]
     fixed_sum = float(sum(fixed_weights.values()))
-
     if use_simplex and fixed_sum >= 1.0 - 1e-12:
-        print("[BO] Warning: use_simplex=True but sum of fixed weights >= 1. " "Free weights will be (almost) zero.")
+        print("[BO] Warning: use_simplex=True but sum of fixed weights >= 1. Free weights ~ zero.")
 
+    # --- Logging directory & files ---
     log_dir = Path("result/bo")
     log_dir.mkdir(parents=True, exist_ok=True)
-    bo_log = {}  # dict[index] = {'metric': float, muscle_1: w1, ...}
 
-    def _save_logs_snapshot():
-        """Persist logs after each iteration (both pickle + npz)."""
-        with open(log_dir / "bo_iter_log.pkl", "wb") as f:
-            pickle.dump(bo_log, f)
-        np.savez_compressed(log_dir / "bo_iter_log.npz", bo_log=np.array([bo_log], dtype=object))
-        if bo_log:
-            idx = np.array(sorted(bo_log.keys()))
-            metrics = np.array([float(bo_log[i]["metric"]) for i in idx], dtype=float)
-            weights_mat = np.array([[float(bo_log[i][name]) for name in muscle_names] for i in idx], dtype=float)
-            np.savez_compressed(
-                log_dir / "bo_iter_arrays.npz",
-                iteration=idx,
-                muscle_names=np.array(muscle_names),
-                weights=weights_mat,
-                metric=metrics,
-            )
+    pkl_path = log_dir / "bo_iter_log.pkl"
+    npz_path = log_dir / "bo_iter_arrays.npz"
+    pkl_tmp  = log_dir / "bo_iter_log.pkl.tmp"
+    npz_tmp  = log_dir / "bo_iter_arrays.npz.tmp"
 
-    # --- Define search space only over FREE muscles --- #
+    # Clean any orphan .tmp files from a previous crash
+    for _p in (pkl_tmp, npz_tmp):
+        try:
+            if _p.exists():
+                _p.unlink()
+        except Exception:
+            pass
+
+    # --- In-memory log & cache (with resume) ---
+    bo_log = {}     # index -> {"metric": float, muscle_i: w}
+    _cache = {}     # tuple(full_weights) -> loss
+
+    # Try resuming from previous files
+    if resume:
+        try:
+            if npz_path.exists():
+                arr = np.load(npz_path, allow_pickle=False)
+                iteration = arr["iteration"]
+                muscle_names_prev = [s for s in arr["muscle_names"]]
+                weights = arr["weights"]
+                metric = arr["metric"]
+                if list(muscle_names_prev) == list(muscle_names):
+                    for k, iter_id in enumerate(iteration):
+                        entry = {"metric": float(metric[k])}
+                        entry.update({name: float(weights[k, j]) for j, name in enumerate(muscle_names)})
+                        i = int(iter_id)
+                        bo_log[i] = entry
+                        key = tuple(round(float(entry[name]), 8) for name in muscle_names)
+                        if np.isfinite(entry["metric"]):
+                            _cache[key] = -float(entry["metric"])  # loss = -metric
+            elif pkl_path.exists():
+                with open(pkl_path, "rb") as f:
+                    bo_prev = pickle.load(f)
+                for i, entry in sorted(bo_prev.items()):
+                    row = {k: float(v) for k, v in entry.items()}
+                    bo_log[int(i)] = row
+                    key = tuple(round(float(row[name]), 8) for name in muscle_names)
+                    if np.isfinite(row["metric"]):
+                        _cache[key] = -float(row["metric"])
+            if bo_log:
+                print(f"[BO] Resumed {len(bo_log)} past evals from disk.")
+        except Exception as e:
+            print(f"[BO] Resume failed (continuing fresh): {e}")
+
+    # --- Search space over FREE muscles ---
     if use_simplex:
         space = [Real(-5.0, 5.0, name=f"z_{n}") for n in free_names]
         free_param_names = [f"z_{n}" for n in free_names]
@@ -313,7 +354,7 @@ def bayes_optimize_weights(
         ]
         free_param_names = [f"w_{n}" for n in free_names]
 
-    # Template simulation conditions for each BO eval
+    # --- Template sim conditions for each eval ---
     stim_count = stimulation_frequency * n_cycles_simultaneous_for_bo
     sim_cond_template = {
         "n_cycles_simultaneous": n_cycles_simultaneous_for_bo,
@@ -324,17 +365,12 @@ def bayes_optimize_weights(
     }
 
     def _compose_full_weights(free_vec):
-        """
-        Turn a vector 'free_vec' (ordered as free_names) into the full ordered
-        weight list aligned with 'muscle_names', inserting fixed weights.
-        Handles simplex case by allocating remaining mass to the free muscles.
-        """
+        """Map free weights to full muscle list, inserting fixed weights."""
         if use_simplex:
-            # softmax over free variables, then scale by remaining mass
             z = np.array(free_vec) - (np.max(free_vec) if len(free_vec) else 0.0)
             w_free = np.exp(z) if len(z) else np.array([])
             w_free = w_free / (np.sum(w_free) + 1e-12) if len(w_free) else w_free
-            remaining = max(1e-12, 1.0 - fixed_sum)  # remaining simplex mass
+            remaining = max(1e-12, 1.0 - fixed_sum)
             w_free = w_free * remaining
         else:
             w_free = np.array(free_vec, dtype=float)
@@ -349,18 +385,48 @@ def bayes_optimize_weights(
                 j += 1
         return full
 
-    _cache = {}
+    # --- Atomic, throttled saver ---
+    _last_saved_len = max(bo_log.keys()) + 1 if bo_log else 0
 
+    def _save_logs_snapshot(force=False):
+        """Persist logs every `save_every` iterations, atomically."""
+        nonlocal _last_saved_len
+        if not force and (len(bo_log) - _last_saved_len) < save_every:
+            return
+        _last_saved_len = len(bo_log)
+
+        # 1) pickle (small) – write to .tmp then replace
+        with open(pkl_tmp, "wb") as f:
+            pickle.dump(bo_log, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pkl_tmp.replace(pkl_path)
+
+        # 2) numeric arrays (fast if not compressed)
+        if bo_log:
+            idx = np.array(sorted(bo_log.keys()))
+            metrics = np.array([float(bo_log[i]["metric"]) for i in idx], dtype=float)
+            weights_mat = np.array([[float(bo_log[i][name]) for name in muscle_names] for i in idx], dtype=float)
+            save_fn = np.savez_compressed if compress_arrays else np.savez
+            save_fn(
+                npz_tmp,
+                iteration=idx,
+                muscle_names=np.array(muscle_names),
+                weights=weights_mat,
+                metric=metrics,
+            )
+            npz_tmp.replace(npz_path)
+
+    # --- BO objective ---
     @use_named_args(space)
     def objective(**kwargs):
-        # Extract free vector in the consistent order
+        # Build free vector in stable order
         x_free = [kwargs[k] for k in free_param_names] if free_param_names else []
         weights = _compose_full_weights(x_free)
 
-        # Cache by full weight tuple to avoid duplicate work
+        # Cache key is full weight vector (rounded for stability)
         key = tuple([round(float(v), 8) for v in weights])
         if key in _cache:
             loss = _cache[key]
+            # still log the duplicate proposal for a complete history
             i = len(bo_log)
             entry = {name: float(w) for name, w in zip(muscle_names, weights)}
             entry["metric"] = float(-loss) if np.isfinite(loss) else float("nan")
@@ -372,7 +438,7 @@ def bayes_optimize_weights(
         sim_cond["cost_fun_weight"] = weights
 
         try:
-            print(f"[BO] Running NMPC with weights: {weights} for muscles: {muscle_names}")
+            print(f"[BO] Running MHE with weights: {weights} for muscles: {muscle_names}")
             metric = run_optim_bo(
                 mhe_info=mhe_info,
                 cycling_info=cycling_info,
@@ -381,9 +447,9 @@ def bayes_optimize_weights(
                 save_sol=False,
                 return_metric=True,
             )
-            loss = -float(metric)  # maximize metric
+            loss = -float(metric)  # maximize metric -> minimize negative
         except Exception as e:
-            print(f"[BO] NMPC failed for weights={weights} -> {e}")
+            print(f"[BO] MHE failed for weights={weights} -> {e}")
             loss = 1e6
             metric = float("nan")
 
@@ -397,15 +463,44 @@ def bayes_optimize_weights(
 
         return loss
 
+    # --- Seed gp_minimize with prior points when possible ---
+    x0, y0 = None, None
+    if resume and not use_simplex and bo_log:
+        x0_list, y0_list = [], []
+        for i in sorted(bo_log.keys()):
+            row = bo_log[i]
+            if not np.isfinite(row["metric"]):
+                continue
+            x_free_prev = [float(row[name]) for name in free_names]  # order matters
+            x0_list.append(x_free_prev)
+            y0_list.append(-float(row["metric"]))
+        if x0_list:
+            x0, y0 = x0_list, y0_list
+            print(f"[BO] Seeding skopt with {len(x0)} prior evals.")
+
+    # --- Run BO ---
     print(f"[BO] Optimizing {len(free_names)} free weights (of {len(muscle_names)}) over {n_calls} evaluations...")
+    callbacks = []
+    if use_checkpoint and 'CheckpointSaver' in globals() and CheckpointSaver is not None:
+        callbacks.append(
+            CheckpointSaver(
+                str(log_dir / "skopt_checkpoint.pkl"),
+                compress=3,
+                store_objective=False,
+            )
+        )
+
     res = gp_minimize(
         func=objective,
         dimensions=space,
         n_calls=n_calls,
-        n_initial_points=min(n_initial_points, max(1, len(space))),  # guard when few frees
+        n_initial_points=min(n_initial_points, max(1, len(space))),
         acq_func="EI",
         random_state=random_state,
         verbose=True,
+        x0=x0,
+        y0=y0,
+        callback=callbacks if callbacks else None,
     )
 
     # Compose full best weights (include fixed)
@@ -433,8 +528,11 @@ def bayes_optimize_weights(
         return_solution=True,
     )
     print(f"[BO] Confirmed best metric after final run: {final_metric}")
-    return best_w_dict, best_metric, res
 
+    # Force a last snapshot to make sure final state is on disk
+    _save_logs_snapshot(force=True)
+
+    return best_w_dict, best_metric, res
 
 def main_bayes():
     model_path = "../../msk_models/Wu/Modified_Wu_Shoulder_Model_Cycling.bioMod"
@@ -448,7 +546,7 @@ def main_bayes():
         "use_sx": False,
     }
 
-    resistive_torque = -0.263
+    resistive_torque = -0.27
     cycling_info = {
         "pedal_config": {"x_center": 0.35, "y_center": 0.0, "radius": 0.1},
         "resistive_torque": {"Segment_application": "wheel", "torque": np.array([0, 0, resistive_torque])},
