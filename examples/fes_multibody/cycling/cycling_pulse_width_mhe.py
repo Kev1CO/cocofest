@@ -289,9 +289,9 @@ class MyCyclicNMPC(FesNmpcMsk):
             plt.show()
 
 
-# -------------------#
-#   OCP functions   #
-# -------------------#
+# --------------------#
+#    OCP functions    #
+# --------------------#
 
 
 def prepare_nmpc(
@@ -370,6 +370,7 @@ def prepare_nmpc(
         minimize_control,
         cost_fun_weight,
         target=x_init["q"].init[2][-1],
+        fes_models=model.muscles_dynamics_model,
     )
 
     # --- Update model for resistive torque --- #
@@ -598,33 +599,43 @@ def set_constraints(bio_model):
     return constraints
 
 
-def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, cost_fun_weight, target):
+def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, cost_fun_weight, target, fes_models: list):
     objective_functions = ObjectiveList()
-    # --- Set main cost function --- #
-    if minimize_force:
-        objective_functions.add(
-            CustomObjective.minimize_overall_muscle_force_production,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * cost_fun_weight[0],
-            quadratic=True,
-        )
-    if minimize_fatigue:
-        objective_functions.add(
-            CustomObjective.minimize_overall_muscle_fatigue,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * cost_fun_weight[1],
-            quadratic=True,
-        )
-    if minimize_control:
-        objective_functions.add(
-            CustomObjective.minimize_overall_stimulation_charge,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * cost_fun_weight[2],
-            quadratic=True,
-        )
+    for i in range(len(fes_models)):
+        # --- Set main cost function --- #
+        if minimize_force:
+            objective_functions.add(
+                CustomObjective.minimize_muscle_force_production_normalized,
+                # CustomObjective.minimize_overall_muscle_force_production,
+                custom_type=ObjectiveFcn.Lagrange,
+                node=Node.ALL,
+                weight=10000 * cost_fun_weight[0],
+                quadratic=False,
+                fes_model=fes_models[i],
+                power=2,
+            )
+        if minimize_fatigue:
+            objective_functions.add(
+                CustomObjective.minimize_muscle_fatigue_normalized,
+                # CustomObjective.minimize_overall_muscle_fatigue,
+                custom_type=ObjectiveFcn.Lagrange,
+                node=Node.ALL,
+                weight=10000 * cost_fun_weight[1],
+                quadratic=False,
+                fes_model=fes_models[i],
+                power=2,
+            )
+        if minimize_control:
+            objective_functions.add(
+                CustomObjective.minimize_stimulation_charge_normalized,
+                # CustomObjective.minimize_overall_stimulation_charge,
+                custom_type=ObjectiveFcn.Lagrange,
+                node=Node.ALL,
+                weight=10000 * cost_fun_weight[2],
+                quadratic=False,
+                fes_model=fes_models[i],
+                power=2,
+            )
 
     # --- Set cost function for initial_guess ocp --- #
     if not any([minimize_force, minimize_fatigue, minimize_control]):
@@ -639,16 +650,16 @@ def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, 
         )
 
     # --- Set regulation cost function --- #
-    else:
-        objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_STATE,
-            key="q",
-            index=2,
-            node=Node.END,
-            weight=1e-2,
-            target=target,
-            quadratic=True,
-        )
+    # else:
+    #     objective_functions.add(
+    #         ObjectiveFcn.Mayer.MINIMIZE_STATE,
+    #         key="q",
+    #         index=2,
+    #         node=Node.END,
+    #         weight=1e-2,
+    #         target=target,
+    #         quadratic=True,
+    #     )
 
     return objective_functions
 
@@ -916,11 +927,6 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
 
     # Set solver for the optimal control problem
     solver = Solver.IPOPT(show_online_optim=False, _max_iter=1000, show_options=dict(show_bounds=True))
-    solver.set_warm_start_init_point("yes")
-    solver.set_mu_init(1e-2)
-    solver.set_tol(1e-6)
-    solver.set_dual_inf_tol(1e-6)
-    solver.set_constr_viol_tol(1e-6)
     linear_solver = "ma57" if platform == "linux" else "mumps"
     solver.set_linear_solver(linear_solver)
 
@@ -1023,10 +1029,10 @@ if __name__ == "__main__":
 
     main(
         stimulation_frequency=30,
-        n_total_cycle=3,
-        n_cycles_simultaneous=[2],  # [2, 3, 4, 5]
-        resistive_torque=-0.27,  # (N.m)
-        cost_fun_weight=[(0, 1, 0)],  # (min_force, min_fatigue, min_control)
+        n_total_cycle=1000,
+        n_cycles_simultaneous=[2, 3, 4, 5],
+        resistive_torque=-0.30,  # (N.m)
+        cost_fun_weight=[(1, 0, 0), (0, 1, 0), (0, 0, 1)],  # (min_force, min_fatigue, min_control)
         init_guess=False,
         save=False,
     )

@@ -297,8 +297,8 @@ def bayes_optimize_weights(
 
     pkl_path = log_dir / "bo_iter_log.pkl"
     npz_path = log_dir / "bo_iter_arrays.npz"
-    pkl_tmp = log_dir / "bo_iter_log.pkl.tmp"
-    npz_tmp = log_dir / "bo_iter_arrays.tmp.npz"
+    pkl_tmp = log_dir / "bo_iter_log_tmp.pkl"
+    npz_tmp = log_dir / "bo_iter_arrays_tmp.npz"
 
     # Clean any orphan .tmp files from a previous crash
     for _p in (pkl_tmp, npz_tmp):
