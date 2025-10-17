@@ -319,6 +319,7 @@ def prepare_nmpc(
     minimize_fatigue = simulation_conditions["minimize_fatigue"]
     minimize_control = simulation_conditions["minimize_control"]
     cost_fun_weight = simulation_conditions["cost_fun_weight"]
+    cost_fun_power = simulation_conditions["cost_fun_power"]
     # --- Pickle file info --- #
     initial_guess_path = simulation_conditions["init_guess_file_path"]
 
@@ -369,6 +370,7 @@ def prepare_nmpc(
         minimize_fatigue,
         minimize_control,
         cost_fun_weight,
+        cost_fun_power=cost_fun_power,
         target=x_init["q"].init[2][-1],
         fes_models=model.muscles_dynamics_model,
     )
@@ -599,7 +601,7 @@ def set_constraints(bio_model):
     return constraints
 
 
-def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, cost_fun_weight, target, fes_models: list):
+def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, cost_fun_weight, cost_fun_power, target, fes_models: list):
     objective_functions = ObjectiveList()
     for i in range(len(fes_models)):
         # --- Set main cost function --- #
@@ -612,7 +614,7 @@ def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, 
                 weight=10000 * cost_fun_weight[0],
                 quadratic=False,
                 fes_model=fes_models[i],
-                power=2,
+                power=cost_fun_power,
             )
         if minimize_fatigue:
             objective_functions.add(
@@ -623,7 +625,7 @@ def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, 
                 weight=10000 * cost_fun_weight[1],
                 quadratic=False,
                 fes_model=fes_models[i],
-                power=2,
+                power=cost_fun_power,
             )
         if minimize_control:
             objective_functions.add(
@@ -634,7 +636,7 @@ def set_objective_functions(minimize_force, minimize_fatigue, minimize_control, 
                 weight=10000 * cost_fun_weight[2],
                 quadratic=False,
                 fes_model=fes_models[i],
-                power=2,
+                power=cost_fun_power,
             )
 
     # --- Set cost function for initial_guess ocp --- #
@@ -747,6 +749,7 @@ def create_simulation_list(
     n_cycles_simultaneous: list[int],
     stimulation: list[int],
     cost_fun_weight: list[tuple[float, float, float]],
+    cost_fun_power: int,
     ode_solver: OdeSolver(),
 ) -> list[dict]:
 
@@ -793,6 +796,7 @@ def create_simulation_list(
                 "minimize_fatigue": bool(w_fat),
                 "minimize_control": bool(w_c),
                 "cost_fun_weight": [w_f, w_fat, w_c],
+                "cost_fun_power": cost_fun_power,
                 "pickle_file_path": pkl_path,
                 "init_guess_file_path": init_path,
             }
@@ -942,8 +946,8 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
         max_consecutive_failing=1,
     )
 
-    sol[0].animate(viewer="pyorerun")
-    sol[0].graphs()
+    # sol[0].animate(viewer="pyorerun")
+    #sol[0].graphs()
 
     # Saving the data in a pickle file
     if save_sol:
@@ -956,7 +960,7 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
 
 
 def main(
-    stimulation_frequency, n_total_cycle, n_cycles_simultaneous, resistive_torque, cost_fun_weight, init_guess, save
+    stimulation_frequency, n_total_cycle, n_cycles_simultaneous, resistive_torque, cost_fun_weight, cost_fun_power, init_guess, save
 ):
     # --- Simulation configuration --- #
     save_sol = save
@@ -991,6 +995,7 @@ def main(
         n_cycles_simultaneous=n_cycles_simultaneous,
         stimulation=stimulation,
         cost_fun_weight=cost_fun_weight,
+        cost_fun_power=cost_fun_power,
         ode_solver=mhe_info["ode_solver"],
     )
 
@@ -1033,6 +1038,7 @@ if __name__ == "__main__":
         n_cycles_simultaneous=[2, 3, 4, 5],
         resistive_torque=-0.30,  # (N.m)
         cost_fun_weight=[(1, 0, 0), (0, 1, 0), (0, 0, 1)],  # (min_force, min_fatigue, min_control)
+        cost_fun_power=4,
         init_guess=False,
         save=False,
     )
