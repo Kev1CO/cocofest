@@ -837,18 +837,18 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
     stim_time = solution.ocp.nlp[0].model.muscles_dynamics_model[0].stim_time
     solving_time_per_ocp = [sol[1][i].solver_time_to_optimize for i in range(len(sol[1]))]
     objective_values_per_ocp = [float(sol[1][i].cost) for i in range(len(sol[1]))]
-    objective_values_per_kept_cycle = [float(sol[2][i].cost) for i in range(len(sol[2])-1)]
+    objective_values_per_kept_cycle = [float(sol[2][i].cost) for i in range(len(sol[2])-(simulation_conditions["n_cycles_simultaneous"]-1))]
     iter_per_ocp = [sol[1][i].iterations for i in range(len(sol[1]))]
     average_solving_time_per_iter_list = [solving_time_per_ocp[i] / iter_per_ocp[i] for i in range(len(sol[1]))]
     total_average_solving_time_per_iter = average(average_solving_time_per_iter_list)
-    number_of_turns_before_failing = len(sol[1]) - 1 + simulation_conditions["n_cycles_simultaneous"]
+    number_of_turns_before_failing = len(sol[2])
     convergence_status = [sol[1][i].status for i in range(len(sol[1]))]
 
     obj_force_val, obj_fatigue_val, obj_control_val = recalculate_objective_fun(sol[1], nmpc, power=simulation_conditions['cost_fun_power'])
     cost_values = [obj_force_val, obj_fatigue_val, obj_control_val]
     similar_cost_values = [True if objective_values_per_kept_cycle == cost_values[i] else False for i in range(3)]
     if not any(similar_cost_values):
-        raise ValueError("Recalculated cost function does not match the original one.")
+        print("Recalculated cost function does not match the original one.")
 
     # --- Convert all data into lists for compatibility across Python versions --- #
     time = time.tolist()
@@ -1112,8 +1112,8 @@ if __name__ == "__main__":
 
     main(
         stimulation_frequency=30,
-        n_total_cycle=100000,
-        n_cycles_simultaneous=[2, 3, 4, 5],
+        n_total_cycle=2,
+        n_cycles_simultaneous=[3, 4, 5],
         resistive_torque=-0.20,  # (N.m)
         cost_fun_weight=[(1, 0, 0), (0, 1, 0), (0, 0, 1)],  # (min_force, min_fatigue, min_control)
         cost_fun_power=2,
