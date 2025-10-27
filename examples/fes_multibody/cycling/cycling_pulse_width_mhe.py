@@ -45,6 +45,7 @@ from cocofest import (
     OcpFesMsk,
     FesNmpcMsk,
 )
+from examples.fes_multibody.cycling.cost_functions import CustomCostFunctions
 
 
 class MyCyclicNMPC(FesNmpcMsk):
@@ -315,8 +316,8 @@ def prepare_nmpc(
     pedal_config = cycling_info["pedal_config"]
     external_force = cycling_info["resistive_torque"]
     # --- Cost function info --- #
-    objective_fun_dict = {"cost_fun_weight": simulation_conditions["cost_fun_weight"],
-                          "cost_fun_power": simulation_conditions["cost_fun_power"],
+    objective_fun_dict = {"cost_fun_key": simulation_conditions["cost_fun_key"],
+                          "cost_fun_weight": simulation_conditions["cost_fun_weight"],
                           "individual_quadratic": True}
     # --- Pickle file info --- #
     initial_guess_path = simulation_conditions["init_guess_file_path"]
@@ -366,7 +367,6 @@ def prepare_nmpc(
     objective_fun_dict["target"] = x_init["q"].init[2][-1]
     objective_functions = set_objective_functions(
         objective_fun_dict=objective_fun_dict,
-        fes_models=model.muscles_dynamics_model,
     )
 
     # --- Update model for resistive torque --- #
@@ -498,7 +498,7 @@ def set_x_bounds(
     q_x_bounds.min[1] = [forearm_q[0]] * 3
     q_x_bounds.max[1] = [forearm_q[1]] * 3
     q_x_bounds.min[2] = [x_init["q"].init[2][0], wheel_q[0] - 2, x_init["q"].init[2][-1] - slack]
-    q_x_bounds.max[2] = [x_init["q"].init[2][0], wheel_q[1] + 2, x_init["q"].init[2][-1] + slack]
+    q_x_bounds.max[2] = [x_init["q"].init[2][0], wheel_q[1] + 3, x_init["q"].init[2][-1] + slack]
 
     x_bounds.add(
         key="q", bounds=q_x_bounds, phase=0, interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT
@@ -595,20 +595,14 @@ def set_constraints(bio_model):
     return constraints
 
 
-def set_objective_functions(objective_fun_dict, fes_models: list):
+def set_objective_functions(objective_fun_dict):
     objective_functions = ObjectiveList()
+    custom_objective_functions = CustomCostFunctions().dict_functions
     weights = objective_fun_dict["cost_fun_weight"]
-    power = objective_fun_dict["cost_fun_power"]
-    individual_quadratic = objective_fun_dict["individual_quadratic"]
-
-    # --- Set main cost function --- #
-    if individual_quadratic:
-        objective_functions = set_individual_cost_function(objective_functions, weights, power, fes_models)
-    else:
-        objective_functions = set_global_cost_function(objective_functions, weights)
+    keys = objective_fun_dict["cost_fun_key"]
 
     # --- Set cost function for initial_guess ocp --- #
-    if any(weights) == 0:
+    if keys[0] == "initial_guess":
         target = objective_fun_dict["target"]
         objective_functions.add(
             ObjectiveFcn.Mayer.MINIMIZE_STATE,
@@ -620,75 +614,96 @@ def set_objective_functions(objective_fun_dict, fes_models: list):
             quadratic=True,
         )
 
-    return objective_functions
-
-def set_individual_cost_function(objective_functions, weights, power, fes_models):
-    for i in range(len(fes_models)):
-        # Force
-        if weights[0] > 0:
+    # --- Set main cost function --- #
+    else:
+        for i in range(len(keys)):
             objective_functions.add(
-                CustomObjective.minimize_muscle_force_production_normalized,
+                custom_objective_functions[keys[i]]["function"],
                 custom_type=ObjectiveFcn.Lagrange,
                 node=Node.ALL,
-                weight=10000 * weights[0],
+                weight=weights[i],
                 quadratic=False,
-                fes_model=fes_models[i],
-                power=power,
             )
-        # Fatigue
-        if weights[1] > 0:
-            objective_functions.add(
-                CustomObjective.minimize_muscle_fatigue_normalized,
-                custom_type=ObjectiveFcn.Lagrange,
-                node=Node.ALL,
-                weight=10000 * weights[1],
-                quadratic=False,
-                fes_model=fes_models[i],
-                power=power,
-            )
-        # Control
-        if weights[2] > 0:
-            objective_functions.add(
-                CustomObjective.minimize_stimulation_charge_normalized,
-                custom_type=ObjectiveFcn.Lagrange,
-                node=Node.ALL,
-                weight=10000 * weights[2],
-                quadratic=False,
-                fes_model=fes_models[i],
-                power=power,
-            )
+
+    # power = objective_fun_dict["cost_fun_power"]
+    # individual_quadratic = objective_fun_dict["individual_quadratic"]
+
+    # --- Set main cost function --- #
+    # if individual_quadratic:
+    #     objective_functions = set_individual_cost_function(objective_functions, weights, power, fes_models)
+    # else:
+    #     objective_functions = set_global_cost_function(objective_functions, weights)
+
     return objective_functions
 
-
-def set_global_cost_function(objective_functions, weights):
-    # Force
-    if weights[0] > 0:
-        objective_functions.add(
-            CustomObjective.minimize_overall_muscle_force_production,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * weights[0],
-            quadratic=True,
-        )
-    # Fatigue
-    if weights[1] > 0:
-        objective_functions.add(
-            CustomObjective.minimize_overall_muscle_fatigue,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * weights[1],
-            quadratic=True,
-        )
-    # Control
-    if weights[2] > 0:
-        objective_functions.add(
-            CustomObjective.minimize_overall_stimulation_charge,
-            custom_type=ObjectiveFcn.Lagrange,
-            node=Node.ALL,
-            weight=10000 * weights[2],
-            quadratic=True,
-        )
-    return objective_functions
+# def set_individual_cost_function(objective_functions, weights, power, fes_models):
+#     for i in range(len(fes_models)):
+#         # Force
+#         if weights[0] > 0:
+#             objective_functions.add(
+#                 CustomObjective.minimize_muscle_force_production_normalized,
+#                 custom_type=ObjectiveFcn.Lagrange,
+#                 node=Node.ALL,
+#                 weight=10000 * weights[0],
+#                 quadratic=False,
+#                 fes_model=fes_models[i],
+#                 power=power,
+#             )
+#
+#         # Fatigue
+#         if weights[1] > 0:
+#             objective_functions.add(
+#                 CustomObjective.minimize_muscle_fatigue_normalized,
+#                 custom_type=ObjectiveFcn.Lagrange,
+#                 node=Node.ALL,
+#                 weight=10000 * weights[1],
+#                 quadratic=False,
+#                 fes_model=fes_models[i],
+#                 power=power,
+#             )
+#         # Control
+#         if weights[2] > 0:
+#             objective_functions.add(
+#                 CustomObjective.minimize_stimulation_charge_normalized,
+#                 custom_type=ObjectiveFcn.Lagrange,
+#                 node=Node.ALL,
+#                 weight=10000 * weights[2],
+#                 quadratic=False,
+#                 fes_model=fes_models[i],
+#                 power=power,
+#             )
+#     return objective_functions
+#
+#
+# def set_global_cost_function(objective_functions, weights):
+#     # Force
+#     if weights[0] > 0:
+#         objective_functions.add(
+#             CustomObjective.minimize_overall_muscle_force_production,
+#             custom_type=ObjectiveFcn.Lagrange,
+#             node=Node.ALL,
+#             weight=10000 * weights[0],
+#             quadratic=True,
+#         )
+#     # Fatigue
+#     if weights[1] > 0:
+#         objective_functions.add(
+#             CustomObjective.minimize_overall_muscle_fatigue,
+#             custom_type=ObjectiveFcn.Lagrange,
+#             node=Node.ALL,
+#             weight=10000 * weights[1],
+#             quadratic=True,
+#         )
+#     # Control
+#     if weights[2] > 0:
+#         objective_functions.add(
+#             CustomObjective.minimize_overall_stimulation_charge,
+#             custom_type=ObjectiveFcn.Lagrange,
+#             node=Node.ALL,
+#             weight=10000 * weights[2],
+#             quadratic=True,
+#         )
+#     return objective_functions
 
 
 def updating_model(model: FesMskModel, external_force_set, parameters=None) -> FesMskModel:
@@ -741,10 +756,10 @@ def set_fes_model(model_path, stim_time):
     # tau_fat = (tau_fat_RF * Fiber_prop_II_muscle / Fiber_prop_II_RF) * (a_scale_RF / a_scale_muscle)
 
     parameter_dict = {
-        "Biceps": {"Fmax": 149, "a_scale": 3314.7, "alpha_a": -5.6 * 10e-2, "tau_fat": 179.6},
-        "Triceps": {"Fmax": 262, "a_scale": 4915.5, "alpha_a": -3.4 * 10e-2, "tau_fat": 109.1},
-        "Delt_ant": {"Fmax": 48, "a_scale": 1148.6, "alpha_a": -1.4 * 10e-1, "tau_fat": 445.5},
-        "Delt_post": {"Fmax": 51, "a_scale": 1234.5, "alpha_a": -1.1 * 10e-1, "tau_fat": 342.7},
+        "Biceps": {"Fmax": 149, "a_scale": 3314.7, "alpha_a": -5.6 * 10e-2, "tau_fat": 179.6, "pcsa": 7.33},
+        "Triceps": {"Fmax": 262, "a_scale": 4915.5, "alpha_a": -3.4 * 10e-2, "tau_fat": 109.1, "pcsa": 10.87},
+        "Delt_ant": {"Fmax": 48, "a_scale": 1148.6, "alpha_a": -1.4 * 10e-1, "tau_fat": 445.5, "pcsa": 2.54},
+        "Delt_post": {"Fmax": 51, "a_scale": 1234.5, "alpha_a": -1.1 * 10e-1, "tau_fat": 342.7, "pcsa": 2.73},
     }
 
     for model in muscles_model:
@@ -754,6 +769,7 @@ def set_fes_model(model_path, stim_time):
         model.fmax = parameter_dict[muscle_name]["Fmax"]
         model.alpha_a = parameter_dict[muscle_name]["alpha_a"]
         model.tau_fat = parameter_dict[muscle_name]["tau_fat"]
+        model.pcsa = parameter_dict[muscle_name]["pcsa"]
 
     # Create MSK FES-driven model
     fes_model = FesMskModel(
@@ -773,26 +789,19 @@ def set_fes_model(model_path, stim_time):
 def create_simulation_list(
     n_cycles_simultaneous: list[int],
     stimulation: list[int],
-    cost_fun_weight: list[tuple[float, float, float]],
-    cost_fun_power: int,
+    cost_fun_dict: dict,
     ode_solver: OdeSolver(),
 ) -> list[dict]:
 
     def make_file_paths(
         num_cycles: int,
-        w_force: float,
-        w_fatigue: float,
-        w_control: float,
+        index: list,
         solver_type: OdeSolver,
     ) -> tuple[str, str]:
 
-        parts = []
-        if w_force:
-            parts.append(f"{int(w_force*100)}_force")
-        if w_fatigue:
-            parts.append(f"{int(w_fatigue*100)}_fatigue")
-        if w_control:
-            parts.append(f"{int(w_control*100)}_control")
+        parts = ["cost_fun_index"]
+        for i in range(len(index)):
+            parts.append(f"{index[i]}")
         weight_suffix = "_".join(parts)
 
         if isinstance(solver_type, OdeSolver.COLLOCATION):
@@ -811,17 +820,16 @@ def create_simulation_list(
         return pkl, init
 
     sims = []
-    for (n_cycles, stim), (w_f, w_fat, w_c) in product(zip(n_cycles_simultaneous, stimulation), cost_fun_weight):
-        pkl_path, init_path = make_file_paths(n_cycles, w_f, w_fat, w_c, ode_solver)
+    custom_cost_function_dict = CustomCostFunctions().dict_functions
+    for (n_cycles, stim), (cost_fun_key, weight) in product(zip(n_cycles_simultaneous, stimulation), zip(cost_fun_dict["optimized_function"], cost_fun_dict["weight"])):
+        index = [custom_cost_function_dict[key]["index"] for key in cost_fun_key]
+        pkl_path, init_path = make_file_paths(n_cycles, index, ode_solver)
         sims.append(
             {
                 "n_cycles_simultaneous": n_cycles,
                 "stimulation": stim,
-                "minimize_force": bool(w_f),
-                "minimize_fatigue": bool(w_fat),
-                "minimize_control": bool(w_c),
-                "cost_fun_weight": [w_f, w_fat, w_c],
-                "cost_fun_power": cost_fun_power,
+                "cost_fun_key": cost_fun_key,
+                "cost_fun_weight": weight,
                 "pickle_file_path": pkl_path,
                 "init_guess_file_path": init_path,
             }
@@ -843,10 +851,11 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
     total_average_solving_time_per_iter = average(average_solving_time_per_iter_list)
     number_of_turns_before_failing = len(sol[2])
     convergence_status = [sol[1][i].status for i in range(len(sol[1]))]
+    cost_function = np.array(simulation_conditions["cost_fun_key"], dtype=np.str_)
+    cost_function_weight = simulation_conditions["cost_fun_weight"]
 
-    obj_force_val, obj_fatigue_val, obj_control_val = recalculate_objective_fun(sol[1], nmpc, power=simulation_conditions['cost_fun_power'])
-    cost_values = [obj_force_val, obj_fatigue_val, obj_control_val]
-    similar_cost_values = [True if objective_values_per_kept_cycle == cost_values[i] else False for i in range(3)]
+    recalculate_objective_dict = recalculate_objective_fun(sol[1], nmpc, sim_cond=simulation_conditions)
+    similar_cost_values = [True if objective_values_per_kept_cycle == recalculate_objective_dict[key] else False for key in recalculate_objective_dict]
     if not any(similar_cost_values):
         print("Recalculated cost function does not match the original one.")
 
@@ -861,9 +870,6 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
         "solving_time_per_ocp": solving_time_per_ocp,
         "objective_values_per_ocp": objective_values_per_ocp,
         "objective_values_per_kept_cycle": objective_values_per_kept_cycle,
-        "obj_force_val_per_ocp": obj_force_val,
-        "obj_fatigue_val_per_ocp": obj_fatigue_val,
-        "obj_control_val_per_ocp": obj_control_val,
         "number_of_turns_before_failing": number_of_turns_before_failing,
         "convergence_status": convergence_status,
         "iter_per_ocp": iter_per_ocp,
@@ -873,12 +879,17 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
         "n_shooting_per_cycle": int(solution.ocp.n_shooting / len(sol[1])),
         "polynomial_order": solution.ocp.nlp[0].dynamics_type.ode_solver.polynomial_degree,
         "applied_torque": torque,
+        "cost_function": cost_function,
+        "cost_function_weight": cost_function_weight,
     }
 
+    for key in recalculate_objective_dict.keys():
+        dictionary[key] = recalculate_objective_dict[key]
     for key in states.keys():
         dictionary[key] = states[key]
     for key in controls.keys():
         dictionary[key] = controls[key]
+
 
     pickle_file_name = simulation_conditions["pickle_file_path"]
     with open(pickle_file_name, "wb") as file:
@@ -888,30 +899,26 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
     print(simulation_conditions["pickle_file_path"])
 
 
-def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, power) -> tuple[
-    list[float], list[float], list[float]]:
-    cost_force_list, cost_fatigue_list, cost_control_list = [], [], []
+def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -> dict:
+    recalculated_cost_functions = {}
+    custom_cost_functions = CustomCostFunctions().dict_functions
 
-    obj_fun_dict = {'cost_fun_weight': [1, 0, 0], 'cost_fun_power': power, 'individual_quadratic': True}
-    obj_fun_force = set_objective_functions(obj_fun_dict, cycle_solutions[0].ocp.nlp[0].model.muscles_dynamics_model)
-    obj_fun_dict['cost_fun_weight']= [0, 1, 0]
-    obj_fun_fatigue = set_objective_functions(obj_fun_dict, cycle_solutions[0].ocp.nlp[0].model.muscles_dynamics_model)
-    obj_fun_dict['cost_fun_weight'] = [0, 0, 1]
-    obj_fun_control = set_objective_functions(obj_fun_dict, cycle_solutions[0].ocp.nlp[0].model.muscles_dynamics_model)
-
-    obj_fun_list = [obj_fun_force, obj_fun_fatigue, obj_fun_control]
-    cost_fun_list = [cost_force_list, cost_fatigue_list, cost_control_list]
-
-    for i in range(len(cycle_solutions)):
-        _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
-        dt = float(cycle_solutions[i].t_span()[0][-1])
-        for j in range(len(obj_fun_list)):
-            nmpc.common_objective_functions = obj_fun_list[j]
+    for key in custom_cost_functions.keys():
+        obj_fun_dict = {'cost_fun_key': [key],
+                        'cost_fun_weight': sim_cond["cost_fun_weight"], }
+        objective = set_objective_functions(obj_fun_dict)
+        nmpc.common_objective_functions = objective
+        cost_function_values = []
+        for i in range(len(cycle_solutions)):
+            _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
+            dt = float(cycle_solutions[i].t_span()[0][-1])
             solution = nmpc._initialize_one_cycle(dt, _states, _controls, _parameters)
             cost = float(solution.cost)
-            cost_fun_list[j].append(cost)
+            cost_function_values.append(cost)
 
-    return cost_force_list, cost_fatigue_list, cost_control_list
+        recalculated_cost_functions[key + "_cost"] = cost_function_values
+
+    return recalculated_cost_functions
 
 def _prepare_objective_evaluation(sol: Solution):
     nlp = sol.ocp.nlp[0]
@@ -952,11 +959,8 @@ def run_initial_guess(mhe_info, cycling_info, model_path, stimulation, n_cycles_
         simulation_conditions = {
             "n_cycles_simultaneous": n_cycles_simultaneous[i],
             "stimulation": stimulation[i],
-            "minimize_force": False,
-            "minimize_fatigue": False,
-            "minimize_control": False,
-            "cost_fun_weight": [0, 0, 0],
-            "cost_fun_power": 1,
+            "cost_fun_key":["initial_guess"],
+            "cost_fun_weight": [10000],
             "pickle_file_path": Path("result")
             / "initial_guess"
             / f"{n_cycles_simultaneous[i]}_initial_guess_{solver_suffix}.pkl",
@@ -1024,7 +1028,7 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
     result_show = False
     if result_show:
         sol[0].animate(viewer="pyorerun")
-        sol[0].graphs()
+        sol[0].graphs(show_bounds=True)
 
     # Saving the data in a pickle file
     if save_sol:
@@ -1038,7 +1042,7 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
 
 
 def main(
-    stimulation_frequency, n_total_cycle, n_cycles_simultaneous, resistive_torque, cost_fun_weight, cost_fun_power, init_guess, save
+    stimulation_frequency, n_total_cycle, n_cycles_simultaneous, resistive_torque, cost_fun_dict, init_guess, save
 ):
     # --- Simulation configuration --- #
     save_sol = save
@@ -1072,8 +1076,7 @@ def main(
     simulation_conditions_list = create_simulation_list(
         n_cycles_simultaneous=n_cycles_simultaneous,
         stimulation=stimulation,
-        cost_fun_weight=cost_fun_weight,
-        cost_fun_power=cost_fun_power,
+        cost_fun_dict=cost_fun_dict,
         ode_solver=mhe_info["ode_solver"],
     )
 
@@ -1100,23 +1103,18 @@ def main(
 
 
 if __name__ == "__main__":
-
-    # --- Build cost function weight parameters --- #
-    # cost_function_weight = [
-    #     (1, 0, 0), (0, 1, 0), (0, 0, 1),
-    #     (0.75, 0.25, 0), (0.5, 0.5, 0), (0.25, 0.75, 0),
-    #     (0.75, 0, 0.25), (0.5, 0, 0.5), (0.25, 0, 0.75),
-    #     (0, 0.75, 0.25), (0, 0.5, 0.5), (0, 0.25, 0.75),
-    #     (1 / 3, 1 / 3, 1 / 3),
-    # ]
-
     main(
         stimulation_frequency=30,
         n_total_cycle=2,
-        n_cycles_simultaneous=[3, 4, 5],
+        n_cycles_simultaneous=[2, 3, 4, 5],
         resistive_torque=-0.20,  # (N.m)
-        cost_fun_weight=[(1, 0, 0), (0, 1, 0), (0, 0, 1)],  # (min_force, min_fatigue, min_control)
-        cost_fun_power=2,
+        cost_fun_dict= {"optimized_function":[["minimize_average_force"]],
+                                             # ["minimize_average_fatigue"],
+                                              #["minimize_average_activation"]],
+                        "weight":[[10000]],
+                                 # [10000],
+                                 #  [10000]],
+                        },
         init_guess=False,
         save=True,
     )
