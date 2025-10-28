@@ -147,6 +147,7 @@ class CustomCostFunctions:
         -------
         The root-mean-square of produced force
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_force = vertcat(
             *[
@@ -154,7 +155,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        rms_force = (sum1(muscle_force) / len(muscle_name_list)) ** 0.5
+        rms_force = (sum1(muscle_force) / len(muscle_name_list) + eps) ** 0.5
         return rms_force
 
     @staticmethod
@@ -171,6 +172,7 @@ class CustomCostFunctions:
         -------
         The cubic average of produced force
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_force = vertcat(
             *[
@@ -178,7 +180,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        cubic_avg_force = (sum1(muscle_force) / len(muscle_name_list)) ** (1/3)
+        cubic_avg_force = (sum1(muscle_force) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_force
 
     @staticmethod
@@ -247,6 +249,7 @@ class CustomCostFunctions:
         -------
         The root-mean-square of muscle activation
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         if isinstance(controller.model.muscles_dynamics_model[0], DingModelPulseWidthFrequency):
             stim_charge = vertcat(
@@ -262,7 +265,7 @@ class CustomCostFunctions:
             raise NotImplementedError(
                 "Minimizing average activation is only implemented for DingModelPulseWidthFrequency.")
 
-        rms_activation = (sum1(stim_charge) / len(muscle_name_list)) ** 0.5
+        rms_activation = (sum1(stim_charge) / len(muscle_name_list) + eps) ** 0.5
         return rms_activation
 
     @staticmethod
@@ -279,6 +282,7 @@ class CustomCostFunctions:
         -------
         The cubic average of muscle activation
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         if isinstance(controller.model.muscles_dynamics_model[0], DingModelPulseWidthFrequency):
             stim_charge = vertcat(
@@ -294,7 +298,7 @@ class CustomCostFunctions:
             raise NotImplementedError(
                 "Minimizing average activation is only implemented for DingModelPulseWidthFrequency.")
 
-        cubic_avg_activation = (sum1(stim_charge) / len(muscle_name_list)) ** (1/3)
+        cubic_avg_activation = (sum1(stim_charge) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_activation
 
     @staticmethod
@@ -366,6 +370,7 @@ class CustomCostFunctions:
         -------
         The root-mean-square of muscle stress
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_stress = vertcat(
             *[
@@ -373,7 +378,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        rms_stress = (sum1(muscle_stress) / len(muscle_name_list)) ** 0.5
+        rms_stress = (sum1(muscle_stress) / len(muscle_name_list) + eps) ** 0.5
         return rms_stress
 
     @staticmethod
@@ -390,6 +395,7 @@ class CustomCostFunctions:
         -------
         The cubic average of muscle stress
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_stress = vertcat(
             *[
@@ -398,7 +404,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        cubic_avg_stress = (sum1(muscle_stress) / len(muscle_name_list)) ** (1/3)
+        cubic_avg_stress = (sum1(muscle_stress) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_stress
 
     @staticmethod
@@ -462,6 +468,7 @@ class CustomCostFunctions:
         -------
         The root-mean-square of muscle fatigue
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_fatigue = vertcat(
             *[
@@ -469,7 +476,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        rms_fatigue = (sum1(muscle_fatigue) / len(muscle_name_list)) ** 0.5
+        rms_fatigue = (sum1(muscle_fatigue) / len(muscle_name_list) + eps) ** 0.5
         return rms_fatigue
 
 
@@ -487,6 +494,7 @@ class CustomCostFunctions:
         -------
         The cubic average of muscle fatigue
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_fatigue = vertcat(
             *[
@@ -494,7 +502,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        cubic_avg_fatigue = (sum1(muscle_fatigue) / len(muscle_name_list)) ** (1/3)
+        cubic_avg_fatigue = (sum1(muscle_fatigue) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_fatigue
 
     @staticmethod
@@ -535,6 +543,7 @@ class CustomCostFunctions:
         -------
         The root-mean-square of muscle power
         """
+        eps = 1e-8
         muscle_name_list = controller.model.bio_model.muscle_names
         muscle_velocity = controller.model.muscle_velocity()(
                     controller.states["q"].cx, controller.states["qdot"].cx, controller.parameters.cx
@@ -545,5 +554,5 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        rms_power = (sum1(muscle_power) / len(muscle_name_list)) ** 0.5
+        rms_power = (sum1(muscle_power) / len(muscle_name_list) + eps) ** 0.5
         return rms_power
