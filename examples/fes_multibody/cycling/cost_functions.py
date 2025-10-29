@@ -1,4 +1,4 @@
-from casadi import MX, vertcat, sum1, mmax
+from casadi import MX, vertcat, sum1, mmax, fabs, sign
 from bioptim import PenaltyController
 from cocofest.models.ding2007.ding2007 import DingModelPulseWidthFrequency
 
@@ -298,7 +298,9 @@ class CustomCostFunctions:
             raise NotImplementedError(
                 "Minimizing average activation is only implemented for DingModelPulseWidthFrequency.")
 
-        cubic_avg_activation = (sum1(stim_charge) / len(muscle_name_list) + eps) ** (1/3)
+        x = sum1(stim_charge) / len(muscle_name_list)
+        cubic_avg_activation = sign(x) * (fabs(x) + eps) ** (1 / 3)
+        # cubic_avg_activation = (sum1(stim_charge) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_activation
 
     @staticmethod
