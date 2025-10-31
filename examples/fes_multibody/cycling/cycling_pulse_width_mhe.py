@@ -30,12 +30,14 @@ from bioptim import (
     ObjectiveList,
     OdeSolver,
     PhaseDynamics,
+    ParameterObjectiveList,
     SolutionMerge,
     Solution,
     Solver,
     ParameterList,
     Node,
     VariableScalingList,
+    VariableScaling,
 )
 from cocofest import (
     CustomObjective,
@@ -360,17 +362,26 @@ def prepare_nmpc(
     # --- Set controls --- #
     u_bounds, u_init, u_scaling = set_u_bounds_and_init(model, window_n_shooting, init_file_path=initial_guess_path)
 
-    # --- Set constraints --- #
-    constraints = set_constraints(model)
-
     # --- Set objective --- #
     objective_fun_dict["target"] = x_init["q"].init[2][-1]
     objective_functions = set_objective_functions(
         objective_fun_dict=objective_fun_dict,
     )
 
+    # --- Set parameters (for minmax cost_function) --- #
+    if objective_fun_dict["cost_fun_key"] in [["minimize_peak_force"], ["minimize_peak_activation"], ["minimize_peak_muscle_stress"], ["minimize_peak_fatigue"]]:
+        parameters, parameters_bounds, parameters_init, parameters_objectives = set_parameters(ns=cycle_len, cycle=n_cycles_simultaneous, use_sx=use_sx)
+    else:
+        parameters = ParameterList(use_sx=use_sx)
+        parameters_bounds = BoundsList()
+        parameters_init = InitialGuessList()
+        parameters_objectives = ParameterObjectiveList()
+
+     # --- Set constraints --- #
+    constraints = set_constraints(model, objective_fun_dict["cost_fun_key"])
+
     # --- Update model for resistive torque --- #
-    model = updating_model(model=model, external_force_set=external_force_set, parameters=ParameterList(use_sx=use_sx))
+    model = updating_model(model=model, external_force_set=external_force_set, parameters=parameters)
 
     return MyCyclicNMPC(
         bio_model=[model],
@@ -387,6 +398,10 @@ def prepare_nmpc(
         u_bounds=u_bounds,
         u_init=u_init,
         u_scaling=u_scaling,
+        parameters=parameters,
+        parameter_init=parameters_init,
+        parameter_bounds=parameters_bounds,
+        parameter_objectives=parameters_objectives,
         n_threads=48,
         use_sx=use_sx,
     )
@@ -575,7 +590,7 @@ def set_u_bounds_and_init(bio_model, n_shooting, init_file_path):
     )
 
 
-def set_constraints(bio_model):
+def set_constraints(bio_model, objective_function_key):
     constraints = ConstraintList()
     # --- Constraining wheel center position to a fix position --- #
     constraints.add(
@@ -591,6 +606,18 @@ def set_constraints(bio_model):
         node=Node.START,
         axes=[Axis.X, Axis.Y],
     )
+
+    if objective_function_key in [["minimize_peak_force"], ["minimize_peak_activation"],
+                                              ["minimize_peak_muscle_stress"], ["minimize_peak_fatigue"]]:
+        for i in range(4):
+            constraints.add(
+                CustomCostFunctions.constraints_minmax,
+                obj_fun_key=objective_function_key,
+                node=Node.ALL,
+                param_index=i,
+                min_bound=0,
+                max_bound=np.inf,
+            )
 
     return constraints
 
@@ -625,85 +652,21 @@ def set_objective_functions(objective_fun_dict):
                 quadratic=False,
             )
 
-    # power = objective_fun_dict["cost_fun_power"]
-    # individual_quadratic = objective_fun_dict["individual_quadratic"]
-
-    # --- Set main cost function --- #
-    # if individual_quadratic:
-    #     objective_functions = set_individual_cost_function(objective_functions, weights, power, fes_models)
-    # else:
-    #     objective_functions = set_global_cost_function(objective_functions, weights)
-
     return objective_functions
 
-# def set_individual_cost_function(objective_functions, weights, power, fes_models):
-#     for i in range(len(fes_models)):
-#         # Force
-#         if weights[0] > 0:
-#             objective_functions.add(
-#                 CustomObjective.minimize_muscle_force_production_normalized,
-#                 custom_type=ObjectiveFcn.Lagrange,
-#                 node=Node.ALL,
-#                 weight=10000 * weights[0],
-#                 quadratic=False,
-#                 fes_model=fes_models[i],
-#                 power=power,
-#             )
-#
-#         # Fatigue
-#         if weights[1] > 0:
-#             objective_functions.add(
-#                 CustomObjective.minimize_muscle_fatigue_normalized,
-#                 custom_type=ObjectiveFcn.Lagrange,
-#                 node=Node.ALL,
-#                 weight=10000 * weights[1],
-#                 quadratic=False,
-#                 fes_model=fes_models[i],
-#                 power=power,
-#             )
-#         # Control
-#         if weights[2] > 0:
-#             objective_functions.add(
-#                 CustomObjective.minimize_stimulation_charge_normalized,
-#                 custom_type=ObjectiveFcn.Lagrange,
-#                 node=Node.ALL,
-#                 weight=10000 * weights[2],
-#                 quadratic=False,
-#                 fes_model=fes_models[i],
-#                 power=power,
-#             )
-#     return objective_functions
-#
-#
-# def set_global_cost_function(objective_functions, weights):
-#     # Force
-#     if weights[0] > 0:
-#         objective_functions.add(
-#             CustomObjective.minimize_overall_muscle_force_production,
-#             custom_type=ObjectiveFcn.Lagrange,
-#             node=Node.ALL,
-#             weight=10000 * weights[0],
-#             quadratic=True,
-#         )
-#     # Fatigue
-#     if weights[1] > 0:
-#         objective_functions.add(
-#             CustomObjective.minimize_overall_muscle_fatigue,
-#             custom_type=ObjectiveFcn.Lagrange,
-#             node=Node.ALL,
-#             weight=10000 * weights[1],
-#             quadratic=True,
-#         )
-#     # Control
-#     if weights[2] > 0:
-#         objective_functions.add(
-#             CustomObjective.minimize_overall_stimulation_charge,
-#             custom_type=ObjectiveFcn.Lagrange,
-#             node=Node.ALL,
-#             weight=10000 * weights[2],
-#             quadratic=True,
-#         )
-#     return objective_functions
+
+def set_parameters(ns: int, cycle: int, use_sx: bool):
+    parameters = ParameterList(use_sx=use_sx)
+    parameter_bounds = BoundsList()
+    parameter_init = InitialGuessList()
+    parameter_objectives = ParameterObjectiveList()
+    ns = ns * cycle + 1
+
+    parameters.add("minmax_param", None, size=ns, scaling=VariableScaling("minmax_param", [1]*ns))
+    parameter_init["minmax_param"] = [0] * ns
+    parameter_bounds.add("minmax_param", min_bound=[0]*ns, max_bound=[1000000]*ns, interpolation=InterpolationType.CONSTANT)
+
+    return parameters, parameter_bounds, parameter_init, parameter_objectives
 
 
 def updating_model(model: FesMskModel, external_force_set, parameters=None) -> FesMskModel:
@@ -906,37 +869,31 @@ def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -
     import time
     recalculated_cost_functions = {}
     custom_cost_functions = CustomCostFunctions().dict_functions
-
+    peak_key_list = [["minimize_peak_force"],
+                     ["minimize_peak_activation"],
+                     ["minimize_peak_muscle_stress"],
+                     ["minimize_peak_fatigue"]]
+    is_peak = sim_cond["cost_fun_key"] in peak_key_list
     for key in custom_cost_functions.keys():
-        initial_time = time.time()
-        obj_fun_dict = {'cost_fun_key': [key],
-                        'cost_fun_weight': sim_cond["cost_fun_weight"], }
-        objective = set_objective_functions(obj_fun_dict)
-        nmpc.common_objective_functions = objective
-        cost_function_values = []
-        for i in range(len(cycle_solutions)):
-            _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
-            dt = float(cycle_solutions[i].t_span()[0][-1])
-            solution = nmpc._initialize_one_cycle(dt, _states, _controls, _parameters)
-            cost = float(solution.cost)
-            cost_function_values.append(cost)
+        key_in_peak_list = any([True if key == peak_key[0] else False for peak_key in peak_key_list])
+        if not key_in_peak_list or key_in_peak_list and is_peak:
+            initial_time = time.time()
+            obj_fun_dict = {'cost_fun_key': [key],
+                            'cost_fun_weight': sim_cond["cost_fun_weight"], }
+            objective = set_objective_functions(obj_fun_dict)
+            nmpc.common_objective_functions = objective
+            cost_function_values = []
+            for i in range(len(cycle_solutions)):
+                _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
+                dt = float(cycle_solutions[i].t_span()[0][-1])
+                solution = nmpc._initialize_one_cycle(dt, _states, _controls, _parameters)
+                cost = float(solution.cost)
+                cost_function_values.append(cost)
 
-        recalculated_cost_functions[key + "_cost"] = cost_function_values
-        print(f"Recalculating {key} took {time.time() - initial_time:.2f} seconds")
-
+            recalculated_cost_functions[key + "_cost"] = cost_function_values
+            print(f"Recalculating {key} took {time.time() - initial_time:.2f} seconds")
+            
     return recalculated_cost_functions
-
-def _prepare_objective_evaluation(sol: Solution):
-    nlp = sol.ocp.nlp[0]
-    n_intervals = len(nlp.dynamics)
-    step = nlp.dynamics[0].degree + 1  # 4 for Radau-3
-
-    # mesh-node times and per-interval dt
-    t_all = sol.stepwise_time(to_merge=SolutionMerge.NODES).reshape(-1)
-    t_mesh = t_all[::step]
-    dt = t_mesh[1:] - t_mesh[:-1]  # (N,)
-
-    return nlp, n_intervals, step, dt
 
 
 def run_initial_guess(mhe_info, cycling_info, model_path, stimulation, n_cycles_simultaneous, save_sol=True):
@@ -1112,13 +1069,15 @@ if __name__ == "__main__":
     main(
         stimulation_frequency=30,
         n_total_cycle=2,
-        n_cycles_simultaneous=[2, 3, 4, 5],
+        n_cycles_simultaneous=[2],
         resistive_torque=-0.20,  # (N.m)
         cost_fun_dict={"optimized_function": [
-            ["minimize_average_force"],
-            ["minimize_average_fatigue"],
-            ["minimize_average_activation"]],
+            ["minimize_peak_force"],
+            ["minimize_peak_activation"],
+            ["minimize_peak_muscle_stress"],
+            ["minimize_peak_fatigue"]],
             "weight": [[10000],
+                       [10000],
                        [10000],
                        [10000]],
         },

@@ -81,31 +81,31 @@ class CustomCostFunctions:
             "minimize_average_fatigue": {
                 "function": self.minimize_average_fatigue,
                 "index": 13,
-                "latex": r"\frac{1}{n_m}\sum_{j=1}^{n_m} \mathcal{F}^{j}",
+                "latex": r"\phi_{13} = \frac{1}{n_m}\sum_{j=1}^{n_m} \mathcal{F}^{j}",
                 "description":"Minimize the average muscle fatigue",
             },
             "minimize_root_mean_square_fatigue": {
                 "function": self.minimize_root_mean_square_fatigue,
                 "index": 14,
-                "latex": r"\left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{2}\right)^{\tfrac{1}{2}}",
+                "latex": r"\phi_{14} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{2}\right)^{\tfrac{1}{2}}",
                 "description":"Minimize the root mean square of muscle fatigue",
             },
             "minimize_cubic_average_fatigue": {
                 "function": self.minimize_cubic_average_fatigue,
                 "index": 15,
-                "latex": r"\left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{3}\right)^{\tfrac{1}{3}}",
+                "latex": r"\phi_{15} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{3}\right)^{\tfrac{1}{3}}",
                 "description":"Minimize the cubic average of muscle fatigue",
             },
             "minimize_peak_fatigue": {
                 "function": self.minimize_peak_fatigue,
                 "index": 16,
-                "latex": r"\max_{j=1,\ldots,n_m} \; \mathcal{F}^{j}",
+                "latex": r"\phi_{16} = \max_{j=1,\ldots,n_m} \; \mathcal{F}^{j}",
                 "description":"Minimize the peak muscle fatigue",
             },
             "minimize_root_mean_square_muscle_power": {
                 "function": self.minimize_root_mean_square_muscle_power,
                 "index": 17,
-                "latex": r"\phi_{13} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j} v^{j})^{2}\right)^{\tfrac{1}{2}}",
+                "latex": r"\phi_{17} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j} v^{j})^{2}\right)^{\tfrac{1}{2}}",
                 "description":"Minimize the root mean square of muscle power",
             },
         }
@@ -197,15 +197,7 @@ class CustomCostFunctions:
         -------
         The peak of produced force
         """
-        muscle_name_list = controller.model.bio_model.muscle_names
-        muscle_force = vertcat(
-            *[
-                controller.states["F_" + muscle_name_list[x]].cx
-                for x in range(len(muscle_name_list))
-            ]
-        )
-        peak_force = mmax(muscle_force)
-        return peak_force
+        return controller.parameters["minmax_param"].cx
 
     @staticmethod
     def minimize_average_activation(controller: PenaltyController) -> MX:
@@ -317,23 +309,7 @@ class CustomCostFunctions:
         -------
         The peak of muscle activation
         """
-        muscle_name_list = controller.model.bio_model.muscle_names
-        if isinstance(controller.model.muscles_dynamics_model[0], DingModelPulseWidthFrequency):
-            stim_charge = vertcat(
-                *[
-                    (controller.controls["last_pulse_width_" + muscle_name_list[x]].cx -
-                     controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[x]].min[0][0])
-                    / (controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[x]].max[0][0] -
-                       controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[x]].min[0][0])
-                    for x in range(len(muscle_name_list))
-                ]
-            )
-        else:
-            raise NotImplementedError(
-                "Minimizing average activation is only implemented for DingModelPulseWidthFrequency.")
-
-        peak_activation = mmax(stim_charge)
-        return peak_activation
+        return controller.parameters["minmax_param"].cx
 
     @staticmethod
     def minimize_average_muscle_stress(controller: PenaltyController) -> MX:
@@ -423,15 +399,7 @@ class CustomCostFunctions:
         -------
         The peak of muscle stress
         """
-        muscle_name_list = controller.model.bio_model.muscle_names
-        muscle_stress = vertcat(
-            *[
-                controller.states["F_" + muscle_name_list[x]].cx / controller.model.muscles_dynamics_model[x].pcsa
-                for x in range(len(muscle_name_list))
-            ]
-        )
-        peak_stress = mmax(muscle_stress)
-        return peak_stress
+        return controller.parameters["minmax_param"].cx
 
     @staticmethod
     def minimize_average_fatigue(controller: PenaltyController) -> MX:
@@ -521,15 +489,7 @@ class CustomCostFunctions:
         -------
         The peak of muscle fatigue
         """
-        muscle_name_list = controller.model.bio_model.muscle_names
-        muscle_fatigue = vertcat(
-            *[
-                controller.model.muscles_dynamics_model[x].a_scale - controller.states["A_" + muscle_name_list[x]].cx
-                for x in range(len(muscle_name_list))
-            ]
-        )
-        peak_fatigue = mmax(muscle_fatigue)
-        return peak_fatigue
+        return controller.parameters["minmax_param"].cx
 
     @staticmethod
     def minimize_root_mean_square_muscle_power(controller: PenaltyController) -> MX:
@@ -558,3 +518,29 @@ class CustomCostFunctions:
         )
         rms_power = (sum1(muscle_power) / len(muscle_name_list) + eps) ** 0.5
         return rms_power
+
+
+    @staticmethod
+    def constraints_minmax(controller: PenaltyController, obj_fun_key: str, param_index:int) -> MX:
+        muscle_name_list = controller.model.bio_model.muscle_names
+
+        if obj_fun_key == ["minimize_peak_force"]:
+            value = controller.states["F_" + muscle_name_list[param_index]].cx
+
+        elif obj_fun_key == ["minimize_peak_activation"]:
+            value = ((controller.controls["last_pulse_width_" + muscle_name_list[param_index]].cx -
+                     controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[param_index]].min[0][0])
+            / (controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[param_index]].max[0][0] -
+               controller.ocp.nlp[0].u_bounds["last_pulse_width_" + muscle_name_list[param_index]].min[0][0]))
+
+        elif obj_fun_key == ["minimize_peak_muscle_stress"]:
+            value = controller.states["F_" + muscle_name_list[param_index]].cx / controller.model.muscles_dynamics_model[param_index].pcsa
+
+        elif obj_fun_key == ["minimize_peak_fatigue"]:
+            value = controller.model.muscles_dynamics_model[param_index].a_scale - controller.states["A_" + muscle_name_list[param_index]].cx
+
+        else:
+            raise NotImplementedError(f"The cost function {obj_fun_key}, is not implementend in minmax")
+
+        return controller.parameters["minmax_param"].cx[controller.node_index] - value
+
