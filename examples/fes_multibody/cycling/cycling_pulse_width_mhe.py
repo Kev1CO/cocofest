@@ -854,11 +854,6 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
     cost_function = np.array(simulation_conditions["cost_fun_key"], dtype=np.str_)
     cost_function_weight = simulation_conditions["cost_fun_weight"]
 
-    recalculate_objective_dict = recalculate_objective_fun(sol[1], nmpc, sim_cond=simulation_conditions)
-    similar_cost_values = [True if objective_values_per_kept_cycle == recalculate_objective_dict[key] else False for key in recalculate_objective_dict]
-    if not any(similar_cost_values):
-        print("Recalculated cost function does not match the original one.")
-
     # --- Convert all data into lists for compatibility across Python versions --- #
     time = time.tolist()
     states = {key: value.tolist() for key, value in states.items()}
@@ -883,8 +878,16 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
         "cost_function_weight": cost_function_weight,
     }
 
-    for key in recalculate_objective_dict.keys():
-        dictionary[key] = recalculate_objective_dict[key]
+    recalculate_objective = True
+    if recalculate_objective:
+        recalculate_objective_dict = recalculate_objective_fun(sol[1], nmpc, sim_cond=simulation_conditions)
+        similar_cost_values = [True if objective_values_per_kept_cycle == recalculate_objective_dict[key] else False for
+                               key in recalculate_objective_dict]
+        if not any(similar_cost_values):
+            print("Recalculated cost function does not match the original one.")
+        for key in recalculate_objective_dict.keys():
+            dictionary[key] = recalculate_objective_dict[key]
+
     for key in states.keys():
         dictionary[key] = states[key]
     for key in controls.keys():
@@ -900,10 +903,12 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
 
 
 def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -> dict:
+    import time
     recalculated_cost_functions = {}
     custom_cost_functions = CustomCostFunctions().dict_functions
 
     for key in custom_cost_functions.keys():
+        initial_time = time.time()
         obj_fun_dict = {'cost_fun_key': [key],
                         'cost_fun_weight': sim_cond["cost_fun_weight"], }
         objective = set_objective_functions(obj_fun_dict)
@@ -917,6 +922,7 @@ def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -
             cost_function_values.append(cost)
 
         recalculated_cost_functions[key + "_cost"] = cost_function_values
+        print(f"Recalculating {key} took {time.time() - initial_time:.2f} seconds")
 
     return recalculated_cost_functions
 
@@ -1108,13 +1114,14 @@ if __name__ == "__main__":
         n_total_cycle=2,
         n_cycles_simultaneous=[2, 3, 4, 5],
         resistive_torque=-0.20,  # (N.m)
-        cost_fun_dict= {"optimized_function":[["minimize_average_force"]],
-                                             # ["minimize_average_fatigue"],
-                                              #["minimize_average_activation"]],
-                        "weight":[[10000]],
-                                 # [10000],
-                                 #  [10000]],
-                        },
+        cost_fun_dict={"optimized_function": [
+            ["minimize_average_force"],
+            ["minimize_average_fatigue"],
+            ["minimize_average_activation"]],
+            "weight": [[10000],
+                       [10000],
+                       [10000]],
+        },
         init_guess=False,
         save=True,
     )
