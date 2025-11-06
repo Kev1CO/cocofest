@@ -644,13 +644,23 @@ def set_objective_functions(objective_fun_dict):
     # --- Set main cost function --- #
     else:
         for i in range(len(keys)):
-            objective_functions.add(
-                custom_objective_functions[keys[i]]["function"],
-                custom_type=ObjectiveFcn.Lagrange,
-                node=Node.ALL,
-                weight=weights[i],
-                quadratic=False,
-            )
+            if keys[i] in ["minimize_peak_force", "minimize_peak_activation",
+                                          "minimize_peak_muscle_stress", "minimize_peak_fatigue"]:
+                objective_functions.add(
+                    custom_objective_functions["minimize_peak"]["function"],
+                    custom_type=ObjectiveFcn.Lagrange,
+                    node=Node.ALL,
+                    weight=weights[i],
+                    quadratic=False,
+                )
+            else:
+                objective_functions.add(
+                    custom_objective_functions[keys[i]]["function"],
+                    custom_type=ObjectiveFcn.Lagrange,
+                    node=Node.ALL,
+                    weight=weights[i],
+                    quadratic=False,
+                )
 
     return objective_functions
 
@@ -869,30 +879,26 @@ def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -
     import time
     recalculated_cost_functions = {}
     custom_cost_functions = CustomCostFunctions().dict_functions
-    peak_key_list = [["minimize_peak_force"],
-                     ["minimize_peak_activation"],
-                     ["minimize_peak_muscle_stress"],
-                     ["minimize_peak_fatigue"]]
-    is_peak = sim_cond["cost_fun_key"] in peak_key_list
-    for key in custom_cost_functions.keys():
-        key_in_peak_list = any([True if key == peak_key[0] else False for peak_key in peak_key_list])
-        if not key_in_peak_list or key_in_peak_list and is_peak:
-            initial_time = time.time()
-            obj_fun_dict = {'cost_fun_key': [key],
-                            'cost_fun_weight': sim_cond["cost_fun_weight"], }
-            objective = set_objective_functions(obj_fun_dict)
-            nmpc.common_objective_functions = objective
-            cost_function_values = []
-            for i in range(len(cycle_solutions)):
-                _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
-                dt = float(cycle_solutions[i].t_span()[0][-1])
-                solution = nmpc._initialize_one_cycle(dt, _states, _controls, _parameters)
-                cost = float(solution.cost)
-                cost_function_values.append(cost)
 
-            recalculated_cost_functions[key + "_cost"] = cost_function_values
-            print(f"Recalculating {key} took {time.time() - initial_time:.2f} seconds")
-            
+    recalculated_cost_functions_keys = list(custom_cost_functions.keys())[:-1]
+
+    for key in recalculated_cost_functions_keys:
+        initial_time = time.time()
+        obj_fun_dict = {'cost_fun_key': [key],
+                        'cost_fun_weight': sim_cond["cost_fun_weight"], }
+        objective = set_objective_functions(obj_fun_dict)
+        nmpc.common_objective_functions = objective
+        cost_function_values = []
+        for i in range(len(cycle_solutions)):
+            _states, _controls, _parameters = nmpc.export_cycles(cycle_solutions[i])
+            dt = float(cycle_solutions[i].t_span()[0][-1])
+            solution = nmpc._initialize_one_cycle(dt, _states, _controls, _parameters)
+            cost = float(solution.cost)
+            cost_function_values.append(cost)
+
+        recalculated_cost_functions[key + "_cost"] = cost_function_values
+        print(f"Recalculating {key} took {time.time() - initial_time:.2f} seconds")
+
     return recalculated_cost_functions
 
 
@@ -972,7 +978,7 @@ def run_optim(mhe_info, cycling_info, simulation_conditions, model_path, save_so
     nmpc.add_plot_penalty(CostType.ALL)
 
     # Set solver for the optimal control problem
-    solver = Solver.IPOPT(show_online_optim=False, _max_iter=1000, show_options=dict(show_bounds=True))
+    solver = Solver.IPOPT(show_online_optim=False, _max_iter=10000, show_options=dict(show_bounds=True))
     linear_solver = "ma57" if platform == "linux" else "mumps"
     solver.set_linear_solver(linear_solver)
 
@@ -1068,18 +1074,54 @@ def main(
 if __name__ == "__main__":
     main(
         stimulation_frequency=30,
-        n_total_cycle=2,
+        n_total_cycle=10000,
         n_cycles_simultaneous=[2],
         resistive_torque=-0.20,  # (N.m)
         cost_fun_dict={"optimized_function": [
-            ["minimize_peak_force"],
+            ["minimize_average_activation"],
+            ["minimize_root_mean_square_activation"],
+            ["minimize_cubic_average_activation"],
             ["minimize_peak_activation"],
+            ["minimize_average_force"],
+            ["minimize_root_mean_square_force"],
+            ["minimize_cubic_average_force"],
+            ["minimize_peak_force"],
+            ["minimize_average_muscle_stress"],
+            ["minimize_root_mean_square_muscle_stress"],
+            ["minimize_cubic_average_muscle_stress"],
             ["minimize_peak_muscle_stress"],
-            ["minimize_peak_fatigue"]],
-            "weight": [[10000],
+            ["minimize_average_muscle_power"],
+            ["minimize_root_mean_square_muscle_power"],
+            ["minimize_cubic_average_muscle_power"],
+            ["minimize_peak_muscle_power"],
+            ["minimize_average_fatigue"],
+            ["minimize_root_mean_square_fatigue"],
+            ["minimize_cubic_average_fatigue"],
+            ["minimize_peak_fatigue"],
+            ],
+
+            "weight": [
                        [10000],
                        [10000],
-                       [10000]],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000],
+                       [10000]
+                       ],
         },
         init_guess=False,
         save=True,
