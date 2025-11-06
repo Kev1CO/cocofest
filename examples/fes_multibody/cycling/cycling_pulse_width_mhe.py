@@ -622,7 +622,7 @@ def set_constraints(bio_model, objective_function_key):
     return constraints
 
 
-def set_objective_functions(objective_fun_dict):
+def set_objective_functions(objective_fun_dict, recalculate=False):
     objective_functions = ObjectiveList()
     custom_objective_functions = CustomCostFunctions().dict_functions
     weights = objective_fun_dict["cost_fun_weight"]
@@ -645,7 +645,7 @@ def set_objective_functions(objective_fun_dict):
     else:
         for i in range(len(keys)):
             if keys[i] in ["minimize_peak_force", "minimize_peak_activation",
-                                          "minimize_peak_muscle_stress", "minimize_peak_fatigue"]:
+                                          "minimize_peak_muscle_stress", "minimize_peak_fatigue"] and recalculate is False:
                 objective_functions.add(
                     custom_objective_functions["minimize_peak"]["function"],
                     custom_type=ObjectiveFcn.Lagrange,
@@ -885,8 +885,8 @@ def recalculate_objective_fun(cycle_solutions: list[Solution], nmpc, sim_cond) -
     for key in recalculated_cost_functions_keys:
         initial_time = time.time()
         obj_fun_dict = {'cost_fun_key': [key],
-                        'cost_fun_weight': sim_cond["cost_fun_weight"], }
-        objective = set_objective_functions(obj_fun_dict)
+                        'cost_fun_weight': sim_cond["cost_fun_weight"],}
+        objective = set_objective_functions(obj_fun_dict, recalculate=True)
         nmpc.common_objective_functions = objective
         cost_function_values = []
         for i in range(len(cycle_solutions)):
