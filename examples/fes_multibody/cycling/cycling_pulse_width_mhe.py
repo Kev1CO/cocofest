@@ -856,8 +856,13 @@ def save_sol_in_pkl(sol, simulation_conditions, nmpc, is_initial_guess=False, to
         recalculate_objective_dict = recalculate_objective_fun(sol[1], nmpc, sim_cond=simulation_conditions)
         similar_cost_values = [True if objective_values_per_kept_cycle == recalculate_objective_dict[key] else False for
                                key in recalculate_objective_dict]
-        if not any(similar_cost_values):
+        if any(similar_cost_values):
+            dictionary["similar_cost_values"] = True
+            print("Recalculated cost function matches the original one.")
+        else:
+            dictionary["similar_cost_values"] = False
             print("Recalculated cost function does not match the original one.")
+
         for key in recalculate_objective_dict.keys():
             dictionary[key] = recalculate_objective_dict[key]
 

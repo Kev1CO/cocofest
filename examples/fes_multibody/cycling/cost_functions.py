@@ -12,7 +12,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_1 = \frac{1}{n_m}\sum_{j=1}^{n_m} a^{j}, \quad a^{j}=\frac{f^{j}-f^{j}_{\min}}{f^{j}_{\max}-f^{j}_{\min}}",
                 "description": "Minimize the average muscle activation",
                 "power": "1",
-                "indice": "pw",
+                "state": "pw",
             },
             "minimize_root_mean_square_activation": {
                 "function": self.minimize_root_mean_square_activation,
@@ -20,7 +20,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_2 = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (a^{j})^{2}\right)^{\tfrac{1}{2}}, \quad a^{j}=\frac{f^{j}-f^{j}_{\min}}{f^{j}_{\max}-f^{j}_{\min}}",
                 "description": "Minimize the root mean square of muscle activation",
                 "power": "2",
-                "indice": "pw",
+                "state": "pw",
             },
             "minimize_cubic_average_activation": {
                 "function": self.minimize_cubic_average_activation,
@@ -28,7 +28,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_3 = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (a^{j})^{3}\right)^{\tfrac{1}{3}}, \quad a^{j}=\frac{f^{j}-f^{j}_{\min}}{f^{j}_{\max}-f^{j}_{\min}}",
                 "description": "Minimize the cubic average of muscle activation",
                 "power": "3",
-                "indice": "pw",
+                "state": "pw",
             },
             "minimize_peak_activation": {
                 "function": self.minimize_peak_activation,
@@ -36,7 +36,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_4 = \max_{j=1,\ldots,n_m} \; a^{j}, \quad a^{j}=\frac{f^{j}-f^{j}_{\min}}{f^{j}_{\max}-f^{j}_{\min}}",
                 "description": "Minimize the peak of muscle activation",
                 "power": "max",
-                "indice": "pw",
+                "state": "pw",
             },
             "minimize_average_force": {
                 "function": self.minimize_average_force,
@@ -44,7 +44,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_5 = \frac{1}{n_m}\sum_{j=1}^{n_m} f^{j}",
                 "description": "Minimize the average muscle force",
                 "power": "1",
-                "indice": "f",
+                "state": "f",
             },
             "minimize_root_mean_square_force": {
                 "function": self.minimize_root_mean_square_force,
@@ -52,7 +52,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_6 = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j})^{2}\right)^{\tfrac{1}{2}}",
                 "description": "Minimize the root mean square of muscle force",
                 "power": "2",
-                "indice": "f",
+                "state": "f",
             },
             "minimize_cubic_average_force": {
                 "function": self.minimize_cubic_average_force,
@@ -60,7 +60,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_7 = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j})^{3}\right)^{\tfrac{1}{3}}",
                 "description": "Minimize the cubic average of muscle force",
                 "power": "3",
-                "indice": "f",
+                "state": "f",
             },
             "minimize_peak_force": {
                 "function": self.minimize_peak_force,
@@ -68,7 +68,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_8 = \max_{j=1,\ldots,n_m} \; f^{j}",
                 "description": "Minimize the peak muscle force",
                 "power": "max",
-                "indice": "f",
+                "state": "f",
             },
             "minimize_average_muscle_stress": {
                 "function": self.minimize_average_muscle_stress,
@@ -76,7 +76,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_9 = \frac{1}{n_m}\sum_{j=1}^{n_m} \frac{f^{j}}{S^{j}}",
                 "description":"Minimize the average muscle stress",
                 "power": "1",
-                "indice": "stress",
+                "state": "str",
             },
             "minimize_root_mean_square_muscle_stress": {
                 "function": self.minimize_root_mean_square_muscle_stress,
@@ -84,7 +84,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{10} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} \left(\frac{f^{j}}{S^{j}}\right)^{2}\right)^{\tfrac{1}{2}}",
                 "description":"Minimize the root mean square of muscle stress",
                 "power": "2",
-                "indice": "stress",
+                "state": "str",
             },
             "minimize_cubic_average_muscle_stress": {
                 "function": self.minimize_cubic_average_muscle_stress,
@@ -92,7 +92,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{11} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} \left(\frac{f^{j}}{S^{j}}\right)^{3}\right)^{\tfrac{1}{3}}",
                 "description":"Minimize the cubic average of muscle stress",
                 "power": "3",
-                "indice": "stress",
+                "state": "str",
             },
             "minimize_peak_muscle_stress": {
                 "function": self.minimize_peak_muscle_stress,
@@ -100,7 +100,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{12} = \max_{j=1,\ldots,n_m} \; \frac{f^{j}}{S^{j}}",
                 "description":"Minimize the peak muscle stress",
                 "power": "max",
-                "indice": "stress",
+                "state": "str",
             },
             "minimize_average_muscle_power": {
                 "function": self.minimize_average_muscle_power,
@@ -108,7 +108,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{13} = \frac{1}{n_m}\sum_{j=1}^{n_m} f^{j} v^{j}",
                 "description": "Minimize the average muscle power",
                 "power": "1",
-                "indice": "pow",
+                "state": "pow",
             },
             "minimize_root_mean_square_muscle_power": {
                 "function": self.minimize_root_mean_square_muscle_power,
@@ -116,7 +116,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{14} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j} v^{j})^{2}\right)^{\tfrac{1}{2}}",
                 "description": "Minimize the root mean square of muscle power",
                 "power": "2",
-                "indice": "pow",
+                "state": "pow",
             },
             "minimize_cubic_average_muscle_power": {
                 "function": self.minimize_cubic_average_muscle_power,
@@ -124,7 +124,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{15} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (f^{j} v^{j})^{3}\right)^{\tfrac{1}{3}}",
                 "description": "Minimize the cubic average of muscle power",
                 "power": "3",
-                "indice": "pow",
+                "state": "pow",
             },
             "minimize_peak_muscle_power": {
                 "function": self.minimize_peak_muscle_power,
@@ -132,7 +132,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{16} = \max_{j=1,\ldots,n_m} \; f^{j} v^{j}}",
                 "description": "Minimize the peak muscle power",
                 "power": "max",
-                "indice": "pow",
+                "state": "pow",
             },
             "minimize_average_fatigue": {
                 "function": self.minimize_average_fatigue,
@@ -140,7 +140,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{17} = \frac{1}{n_m}\sum_{j=1}^{n_m} \mathcal{F}^{j}",
                 "description": "Minimize the average muscle fatigue",
                 "power": "1",
-                "indice": "fat",
+                "state": "fat",
             },
             "minimize_root_mean_square_fatigue": {
                 "function": self.minimize_root_mean_square_fatigue,
@@ -148,7 +148,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{18} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{2}\right)^{\tfrac{1}{2}}",
                 "description": "Minimize the root mean square of muscle fatigue",
                 "power": "2",
-                "indice": "fat",
+                "state": "fat",
             },
             "minimize_cubic_average_fatigue": {
                 "function": self.minimize_cubic_average_fatigue,
@@ -156,7 +156,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{19} = \left(\frac{1}{n_m}\sum_{j=1}^{n_m} (\mathcal{F}^{j})^{3}\right)^{\tfrac{1}{3}}",
                 "description": "Minimize the cubic average of muscle fatigue",
                 "power": "3",
-                "indice": "fat",
+                "state": "fat",
             },
             "minimize_peak_fatigue": {
                 "function": self.minimize_peak_fatigue,
@@ -164,7 +164,7 @@ class CustomCostFunctions:
                 "latex": r"\phi_{20} = \max_{j=1,\ldots,n_m} \; \mathcal{F}^{j}",
                 "description": "Minimize the peak muscle fatigue",
                 "power": "max",
-                "indice": "fat",
+                "state": "fat",
             },
 
             "minimize_peak": {
