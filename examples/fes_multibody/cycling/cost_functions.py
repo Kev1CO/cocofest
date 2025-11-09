@@ -576,7 +576,7 @@ class CustomCostFunctions:
                 for x in range(len(muscle_name_list))
             ]
         )
-        cubic_avg_power = (sum1(muscle_power) / len(muscle_name_list) + eps) ** (1/3)
+        cubic_avg_power = ((sum1(muscle_power) + eps) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_power
 
     @staticmethod
