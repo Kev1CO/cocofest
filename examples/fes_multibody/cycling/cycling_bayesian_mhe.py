@@ -11,7 +11,8 @@ import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
-from casadi import MX, vertcat
+from skopt.callbacks import CheckpointSaver
+from casadi import MX, vertcat, sum1
 
 from bioptim import (
     ObjectiveList,
@@ -27,9 +28,9 @@ from bioptim import (
 import cycling_pulse_width_mhe as base
 
 
-def minimize_overall_muscle_fatigue(controller: PenaltyController, muscle_weights: dict) -> MX:
+def minimize_root_mean_square_fatigue(controller: PenaltyController, muscle_weights: list) -> MX:
     """
-    Minimize the overall muscle fatigue.
+    Minimize the root-mean-square of muscle fatigue.
 
     Parameters
     ----------
@@ -38,19 +39,21 @@ def minimize_overall_muscle_fatigue(controller: PenaltyController, muscle_weight
 
     Returns
     -------
-    The sum of each force scaling factor
+    The root-mean-square of muscle fatigue
     """
+    eps = 1e-8
     muscle_name_list = controller.model.bio_model.muscle_names
-    muscle_model = controller.model.muscles_dynamics_model
     muscle_fatigue = vertcat(
         *[
-            muscle_weights[x] * (1 - (controller.states["A_" + muscle_name_list[x]].cx / muscle_model[x].a_scale))
+            muscle_weights[x] * (controller.model.muscles_dynamics_model[x].a_scale - controller.states["A_" + muscle_name_list[x]].cx) ** 2
             for x in range(len(muscle_name_list))
         ]
     )
-    return muscle_fatigue
+    rms_fatigue = (sum1(muscle_fatigue) / len(muscle_name_list) + eps) ** 0.5
+    return rms_fatigue
 
-def set_objective_functions(muscle_fatigue_key, cost_fun_weight, target):
+
+def set_objective_functions(muscle_fatigue_key, cost_fun_weight):
     objective_functions = ObjectiveList()
 
     # Normalize weights to per-muscle list
@@ -67,23 +70,12 @@ def set_objective_functions(muscle_fatigue_key, cost_fun_weight, target):
             )
 
     objective_functions.add(
-        minimize_overall_muscle_fatigue,
+        minimize_root_mean_square_fatigue,
         custom_type=ObjectiveFcn.Lagrange,
         muscle_weights=weights,
         node=Node.ALL,
         weight=10000,
-        quadratic=True,
-    )
-
-    # Regulation function
-    objective_functions.add(
-        ObjectiveFcn.Mayer.MINIMIZE_STATE,
-        key="q",
-        index=2,
-        node=Node.END,
-        weight=1e-2,
-        target=target,
-        quadratic=True,
+        quadratic=False,
     )
 
     return objective_functions
@@ -93,7 +85,7 @@ def prepare_nmpc_bo(
     model,
     mhe_info: dict,
     cycling_info: dict,
-    sim_cond: dict,
+    simulation_conditions: dict,
 ):
     # --- Unpack / window sizes --- #
     cycle_duration = mhe_info["cycle_duration"]
@@ -102,6 +94,8 @@ def prepare_nmpc_bo(
     n_cycles_simultaneous = mhe_info["n_cycles_simultaneous"]
     ode_solver = mhe_info["ode_solver"]
     use_sx = mhe_info["use_sx"]
+
+    initial_guess_path = simulation_conditions["init_guess_file_path"]
 
     window_n_shooting = cycle_len * n_cycles_simultaneous
     window_cycle_duration = cycle_duration * n_cycles_simultaneous
@@ -124,24 +118,24 @@ def prepare_nmpc_bo(
         pedal_config=cycling_info["pedal_config"],
         turn_number=cycling_info["turn_number"],
         ode_solver=ode_solver,
-        init_file_path=sim_cond.get("init_guess_file_path"),
+        init_file_path=initial_guess_path,
     )
     x_bounds, x_init = base.set_x_bounds(
         model=model,
         x_init=x_init,
         n_shooting=window_n_shooting,
         ode_solver=ode_solver,
-        init_file_path=sim_cond.get("init_guess_file_path"),
+        init_file_path=initial_guess_path,
     )
     u_bounds, u_init, u_scaling = base.set_u_bounds_and_init(
-        model, window_n_shooting, init_file_path=sim_cond.get("init_guess_file_path")
+        model, window_n_shooting, init_file_path=initial_guess_path
     )
     constraints = base.set_constraints(model)
 
     # --- Per-muscle fatigue objective --- #
     muscle_fatigue_keys = [f"A_{m.muscle_name}" for m in model.muscles_dynamics_model]
     objective_functions = set_objective_functions(
-        muscle_fatigue_keys, sim_cond["cost_fun_weight"], target=x_init["q"].init[2][-1]
+        muscle_fatigue_keys, simulation_conditions["cost_fun_weight"],
     )
 
     # --- Update model with forces / params --- #
@@ -181,7 +175,7 @@ def run_optim_bo(
     model = base.set_fes_model(model_path, stim_time)
 
     # --- Update MHE window sizes --- #
-    mhe_info = dict(mhe_info)  # don’t mutate caller
+    mhe_info = dict(mhe_info)
     mhe_info["cycle_len"] = int(len(stim_time) / sim_cond["n_cycles_simultaneous"])
     mhe_info["n_cycles_simultaneous"] = sim_cond["n_cycles_simultaneous"]
     cycling_info = dict(cycling_info)
@@ -191,7 +185,7 @@ def run_optim_bo(
     nmpc = prepare_nmpc_bo(model, mhe_info, cycling_info, sim_cond)
 
     # --- IPOPT settings --- #
-    solver = Solver.IPOPT(show_online_optim=False, _max_iter=500, show_options=dict(show_bounds=True))
+    solver = Solver.IPOPT(show_online_optim=False, _max_iter=10000, show_options=dict(show_bounds=True))
     solver.set_linear_solver("ma57" if platform == "linux" else "mumps")
 
     # Plot penalties
@@ -249,24 +243,11 @@ def bayes_optimize_weights(
     """
     Bayesian optimize per-muscle weights on A_* (fatigue/activation states).
     Maximizes #turns before failing (we minimize its negative).
-
-    Improvements:
-    - Atomic, throttled saves (pkl + numeric npz)
-    - On-disk resume (cache + x0/y0) from prior runs
-    - Optional skopt checkpointing
     """
-
-    # Optional checkpointing
-    if use_checkpoint:
-        try:
-            from skopt.callbacks import CheckpointSaver
-        except Exception:
-            CheckpointSaver = None
-            use_checkpoint = False
 
     fixed_weights = dict(fixed_weights or {})
 
-    # --- Build a temp model to get muscle order ---
+    # --- Build a temp model to get muscle order --- #
     stim_time_tmp = list(
         np.linspace(
             0,
@@ -278,20 +259,20 @@ def bayes_optimize_weights(
     tmp_model = base.set_fes_model(model_path, stim_time_tmp)
     muscle_names = [m.muscle_name for m in tmp_model.muscles_dynamics_model]
 
-    # Validate fixed keys
+    # --- Check if fixed weights are valid with FES model --- #
     invalid = [k for k in fixed_weights.keys() if k not in muscle_names]
     if invalid:
         raise ValueError(
             f"fixed_weights contains unknown muscles: {invalid}. Known muscles: {muscle_names}"
         )
 
-    # Split free vs fixed
+    # --- Split free vs fixed weights --- #
     free_names = [n for n in muscle_names if n not in fixed_weights]
     fixed_sum = float(sum(fixed_weights.values()))
     if use_simplex and fixed_sum >= 1.0 - 1e-12:
         print("[BO] Warning: use_simplex=True but sum of fixed weights >= 1. Free weights ~ zero.")
 
-    # --- Logging directory & files ---
+    # --- Logging directory & files --- #
     log_dir = Path("result/bo")
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -300,7 +281,7 @@ def bayes_optimize_weights(
     pkl_tmp = log_dir / "bo_iter_log_tmp.pkl"
     npz_tmp = log_dir / "bo_iter_arrays_tmp.npz"
 
-    # Clean any orphan .tmp files from a previous crash
+    # --- Clean any orphan .tmp files from a previous crash --- #
     for _p in (pkl_tmp, npz_tmp):
         try:
             if _p.exists():
@@ -308,14 +289,14 @@ def bayes_optimize_weights(
         except Exception:
             pass
 
-    # --- In-memory log & cache (with resume) ---
+    # --- In-memory log & cache (with resume) --- #
     bo_log = {}     # index -> {"metric": float, muscle_i: w}
     _cache = {}     # tuple(full_weights) -> loss
 
-    # Try resuming from previous files
+    # --- Try resuming from previous files --- #
     if resume:
         try:
-            if npz_path.is_file():  # <— only load if it's an actual file
+            if npz_path.is_file():  # Only load if it's an actual file
                 arr = np.load(npz_path, allow_pickle=False)
                 iteration = arr["iteration"]
                 muscle_names_prev = [s for s in arr["muscle_names"]]
@@ -347,7 +328,7 @@ def bayes_optimize_weights(
         except Exception as e:
             print(f"[BO] Resume failed (continuing fresh): {e}")
 
-    # --- Search space over FREE muscles ---
+    # --- Search space over FREE muscles --- #
     if use_simplex:
         space = [Real(-5.0, 5.0, name=f"z_{n}") for n in free_names]
         free_param_names = [f"z_{n}" for n in free_names]
@@ -357,12 +338,12 @@ def bayes_optimize_weights(
         ]
         free_param_names = [f"w_{n}" for n in free_names]
 
-    # --- Template sim conditions for each eval ---
+    # --- Template sim conditions for each eval --- #
     stim_count = stimulation_frequency * n_cycles_simultaneous_for_bo
     sim_cond_template = {
         "n_cycles_simultaneous": n_cycles_simultaneous_for_bo,
         "stimulation": stim_count,
-        "cost_fun_weight": None,
+        "cost_fun_weight": None, # This is to fit base method but will be applied by the bayesian optimization code
         "pickle_file_path": Path("result/bo/bo_tmp.pkl"),
         "init_guess_file_path": init_guess_file_path,
     }
@@ -420,11 +401,9 @@ def bayes_optimize_weights(
     # --- BO objective ---
     @use_named_args(space)
     def objective(**kwargs):
-        # Build free vector in stable order
+        # --- Build free weight vector in stable order --- #
         x_free = [kwargs[k] for k in free_param_names] if free_param_names else []
         weights = _compose_full_weights(x_free)
-
-        # Cache key is full weight vector (rounded for stability)
         key = tuple([round(float(v), 8) for v in weights])
         if key in _cache:
             loss = _cache[key]
@@ -465,7 +444,7 @@ def bayes_optimize_weights(
 
         return loss
 
-    # --- Seed gp_minimize with prior points when possible ---
+    # --- Seed gp_minimize with prior points when possible --- #
     x0, y0 = None, None
     if resume and not use_simplex and bo_log:
         x0_list, y0_list = [], []
@@ -481,9 +460,9 @@ def bayes_optimize_weights(
             print(f"[BO] Seeding skopt with {len(x0)} prior evals.")
 
     # --- Run BO ---
-    print(f"[BO] Optimizing {len(free_names)} free weights (of {len(muscle_names)}) over {n_calls} evaluations...")
+    print(f"[BO] Optimizing {len(free_names)} free weights (of {len(muscle_names)}) over {n_calls} evaluations")
     callbacks = []
-    if use_checkpoint and 'CheckpointSaver' in globals() and CheckpointSaver is not None:
+    if use_checkpoint:
         callbacks.append(
             CheckpointSaver(
                 str(log_dir / "skopt_checkpoint.pkl"),
@@ -537,18 +516,22 @@ def bayes_optimize_weights(
     return best_w_dict, best_metric, res
 
 def main_bayes():
-    model_path = "../../msk_models/Wu/Modified_Wu_Shoulder_Model_Cycling.bioMod"
-    ode_solver = OdeSolver.COLLOCATION(polynomial_degree=3, method="radau")
 
+    # --- Model choice --- #
+    model_path = "../../msk_models/Wu/Modified_Wu_Shoulder_Model_Cycling.bioMod"
+
+    # --- MHE parameters --- #
+    ode_solver = OdeSolver.COLLOCATION(polynomial_degree=3, method="radau")
     mhe_info = {
         "cycle_duration": 1,
         "n_cycles_to_advance": 1,
-        "n_cycles": 3000,
+        "n_cycles": 10000,
         "ode_solver": ode_solver,
         "use_sx": False,
     }
 
-    resistive_torque = -0.27
+    # --- Bike parameters --- #
+    resistive_torque = -0.20
     cycling_info = {
         "pedal_config": {"x_center": 0.35, "y_center": 0.0, "radius": 0.1},
         "resistive_torque": {"Segment_application": "wheel", "torque": np.array([0, 0, resistive_torque])},
@@ -570,6 +553,7 @@ def main_bayes():
         use_simplex=False,
         init_guess_file_path=init_guess,
         fixed_weights={"Delt_ant": 1.0},
+        resume=True, # Resume from previous optimization if any exist to prevent any weight repetition
     )
 
     print("\nSuggested BO weights:")

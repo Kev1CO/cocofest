@@ -2,7 +2,6 @@ from casadi import MX, vertcat, sum1, mmax, fabs, sign
 from bioptim import PenaltyController
 from cocofest.models.ding2007.ding2007 import DingModelPulseWidthFrequency
 
-
 class CustomCostFunctions:
     def __init__(self):
         self.dict_functions = {
@@ -572,11 +571,11 @@ class CustomCostFunctions:
         )
         muscle_power = vertcat(
             *[
-                (controller.states["F_" + muscle_name_list[x]].cx * muscle_velocity[x]) ** 3
+                ((controller.states["F_" + muscle_name_list[x]].cx * muscle_velocity[x])**2 + 1e-6) ** 1.5
                 for x in range(len(muscle_name_list))
             ]
         )
-        cubic_avg_power = ((sum1(muscle_power) + eps) / len(muscle_name_list) + eps) ** (1/3)
+        cubic_avg_power = ((sum1(muscle_power)) / len(muscle_name_list) + eps) ** (1/3)
         return cubic_avg_power
 
     @staticmethod

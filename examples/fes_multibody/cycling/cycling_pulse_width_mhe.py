@@ -590,7 +590,7 @@ def set_u_bounds_and_init(bio_model, n_shooting, init_file_path):
     )
 
 
-def set_constraints(bio_model, objective_function_key):
+def set_constraints(bio_model, objective_function_key=None):
     constraints = ConstraintList()
     # --- Constraining wheel center position to a fix position --- #
     constraints.add(
