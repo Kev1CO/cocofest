@@ -9,15 +9,19 @@ __pycache__/
 
 external/bioptim
 
-examples/*.pkl
-examples/*.c3d
-examples/*.csv
-
 **/cycling/plot/
 **/cycling/result/
 
 *.pkl
+*.csv
+*.c3d
+*.xlsx
+*.cxp
+
+examples/identification/comparision/model
 
 docs/sphinx/_build/
 docs/sphinx/api/generated/
 docs/sphinx/_generated/
+
+
