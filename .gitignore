@@ -10,6 +10,8 @@ __pycache__/
 external/bioptim
 
 example/*.pkl
+example/*.c3d
+example/*.csv
 **/cycling/plot/
 **/cycling/result/
 
