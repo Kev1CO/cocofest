@@ -17,6 +17,7 @@ external/bioptim
 *.c3d
 *.xlsx
 *.cxp
+*.svg
 
 examples/identification/comparision/model
 
