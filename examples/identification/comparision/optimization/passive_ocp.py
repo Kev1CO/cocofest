@@ -48,7 +48,7 @@ from helper.passive_torque_riener import RienerPassiveTorque
 # - "riener" is the Riener and Edrich form of helper/passive_torque_riener.py
 FORMULATIONS = {
     "double_exponential": (PassiveTorque, ["k1", "k2", "k3", "k4", "theta_max", "theta_min"]),
-    "riener": (RienerPassiveTorque, ["a1", "a2", "a3", "a4", "a5", "b"]),
+    "riener": (RienerPassiveTorque, ["a1", "a2", "stop_torque", "stop_rate", "a5", "b"]),
 }
 
 MAX_PHASE_DURATION = 3.5
@@ -304,8 +304,10 @@ def prepare_ocp(
 
     # --- Declare the passive torque parameters to identify --- #
     passive_torque_class, key_parameter_to_identify = FORMULATIONS[formulation]
-    passive_torque = passive_torque_class()
-    settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
+    reached = float(np.max(np.concatenate([np.asarray(target) for target in q_target])))
+    flexion_limit = max(float(max_elbow_position), reached)
+    passive_torque = passive_torque_class(flexion_limit=flexion_limit)
+    settings = passive_torque.default_parameter_settings(max_elbow_position=flexion_limit)
 
     # Only moves where the search starts from, contrary to fixed_parameters which also pins the bounds
     for name, value in (initial_guess or {}).items():
@@ -471,6 +473,7 @@ def identify(
     participants = pd.read_excel(COMPARISON_ROOT / "data" / "exp" / "data_participants.xlsx")
 
     elbow_joint_limit = participants.loc[participants["participant"] == int(subject), "elbow_joint_limit"].values[0]
+    flexion_limit = max(float(np.deg2rad(180 - elbow_joint_limit)), float(np.max(np.concatenate(global_q))))
     ocp = prepare_ocp(
         model_path=str(COMPARISON_ROOT / "model" / f"p{subject}_scaling_scaled.bioMod"),
         final_time=global_final_time,
@@ -503,6 +506,12 @@ def identify(
     parameters = {key: float(value.squeeze()) for key, value in sol.decision_parameters().items()}
     at_bound = results.parameters_at_bound(ocp, parameters)
 
+    resolved = (
+        passive_torque_class(flexion_limit=flexion_limit).resolved_parameters(parameters)
+        if hasattr(passive_torque_class, "resolved_parameters")
+        else {**passive_torque_class.DEFAULTS, **parameters}
+    )
+
     print(
         f"P{subject} RMSE: {np.rad2deg(results.rmse(q_tracked, q_identified)):.3f} deg "
         f"({len(global_q)} relaxation phase(s), {formulation})"
@@ -528,7 +537,8 @@ def identify(
         debug_plots.plot_passive_torque(
             passive_torque_class(
                 theta_bounds=(float(np.min(q_tracked)), float(np.max(q_tracked))),
-                **{**passive_torque_class.DEFAULTS, **parameters},
+                flexion_limit=flexion_limit,
+                **resolved,
             ),
             subject=subject,
             parameters=parameters,
@@ -538,22 +548,24 @@ def identify(
         results.save(
             subject=subject,
             method=method,
-            parameters={**passive_torque_class.DEFAULTS, **parameters},
+            parameters=resolved,
             time=time,
             tracked=q_tracked,
             identified=q_identified,
             unit="rad",
             sol=sol,
             at_bound=at_bound,
-            bounds=results.parameter_bounds(ocp, {**passive_torque_class.DEFAULTS, **parameters}),
+            bounds=results.parameter_bounds(ocp, resolved),
             phase_lengths=[len(phase) for phase in global_q],
             extra={
                 **(extra if extra else {}),
                 "formulation": formulation,
                 "n_phases": len(global_q),
                 "elbow_joint_limit": float(elbow_joint_limit),
+                "flexion_limit": flexion_limit,
+                "identified_stop": {k: v for k, v in parameters.items() if k.startswith("stop_")},
                 "identified_range": (float(np.min(q_tracked)), float(np.max(q_tracked))),
             },
         )
 
-    return {**passive_torque_class.DEFAULTS, **parameters}
+    return resolved

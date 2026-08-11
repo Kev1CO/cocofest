@@ -61,10 +61,12 @@ IDENTIFIED_PARAMETERS = {
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
 PASSIVE_FLEXION_STOP = {
-    "riener": ["a3", "a4"],
+    "riener": ["stop_torque", "stop_rate"],
     "double_exponential": ["k3", "k4", "theta_max"],
 }
 PASSIVE_CLIP_MARGIN = 0.15
+TRUNCATED_TRAIN_FRACTION = 0.5
+PD0_MARGIN = 0.95
 
 
 # ---- Reading the experimental flexions ---- #
@@ -107,9 +109,15 @@ def movement_slicing(q, time, stim_time):
     tuple
         The elbow angle, the time vector and the train stimulation times (from the phase start) of every movement
     """
+    pulses = [len(train) for train in stim_time if len(train)]
+    complete_train = TRUNCATED_TRAIN_FRACTION * float(np.median(pulses)) if pulses else 0
+
     phases_q, phases_time, phases_stim, kept_trains = [], [], [], []
     for train_index, train in enumerate(stim_time):
         if len(train) == 0:
+            continue
+        if len(train) < complete_train:
+            print(f"  train {train_index} dropped: {len(train)} pulses against a median of {np.median(pulses):.0f}")
             continue
 
         start = int(np.searchsorted(time, train[0]))
@@ -306,7 +314,7 @@ def _passive_setter(name):
     return setter
 
 
-def set_default_values(passive_torque, formulation, max_elbow_position):
+def set_default_values(passive_torque, formulation, max_elbow_position, min_pulse_width=None):
     """
     The identification settings of the muscle parameters, plus the flexion stop of the passive torque.
 
@@ -318,6 +326,8 @@ def set_default_values(passive_torque, formulation, max_elbow_position):
         Which passive formulation it is, to know which of its parameters make up the flexion stop
     max_elbow_position: float
         Used by the double exponential settings for the bounds of theta_max (rad)
+    min_pulse_width: float
+        The smallest pulse width the subject actually received (s), which caps pd0. See PD0_MARGIN.
     """
     settings = {
         name: {
@@ -330,11 +340,22 @@ def set_default_values(passive_torque, formulation, max_elbow_position):
         for name, (initial_guess, min_bound, max_bound, scaling) in IDENTIFIED_PARAMETERS.items()
     }
 
+    if min_pulse_width:
+        pd0 = dict(settings["pd0"])
+        pd0["max_bound"] = PD0_MARGIN * min_pulse_width
+        pd0["initial_guess"] = min(pd0["initial_guess"], 0.5 * pd0["max_bound"])
+        settings["pd0"] = pd0
+
+
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
     for name in PASSIVE_FLEXION_STOP[formulation]:
         setting = dict(passive_settings[name])
         # Start from what the relaxations found rather than from the generic guess
-        setting["initial_guess"] = float(getattr(passive_torque, name))
+        found = getattr(passive_torque, name, None)
+        if found is None:
+            found = getattr(passive_torque, f"_{name}", None)
+        if found is not None:
+            setting["initial_guess"] = float(found)
         setting["function"] = _passive_setter(name)
         settings[name] = setting
 
@@ -372,7 +393,13 @@ def prepare_ocp(
     margin = clip_margin * float(reached.max() - reached.min())
     passive_torque.theta_bounds = (float(reached.min()) - margin, float(reached.max()) + margin)
 
-    settings = set_default_values(passive_torque, formulation, max_elbow_position=float(reached.max()))
+    anchor = getattr(passive_torque, "flexion_limit", None)
+    settings = set_default_values(
+        passive_torque,
+        formulation,
+        max_elbow_position=max(float(anchor or 0.0), float(reached.max())),
+        min_pulse_width=min(phase["pulse_width"] for phase in phases),
+    )
 
     for name, value in (fixed_parameters or {}).items():
         if name in settings:

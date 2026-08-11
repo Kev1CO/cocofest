@@ -39,6 +39,7 @@ from processing.helper.data_to_ocp import DataToOCP
 from helper import debug_plots, results
 
 SUM_STIM_TRUNCATION = 10
+PD0_MARGIN = 0.95
 
 # Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound, scaling).
 IDENTIFIED_PARAMETERS = {
@@ -142,12 +143,17 @@ def set_u_bounds(u_bounds, u_init, control_value, n_shooting, phase):
     return u_bounds, u_init
 
 
-def set_default_values(models):
+def set_default_values(models, min_pulse_width=None):
     """
     The identification settings of every parameter. One setter per phase is given, as the parameters are shared by
     all the phases but each phase owns its own model instance.
+
+    Parameters
+    ----------
+    min_pulse_width: float
+        The smallest pulse width the subject received (s).
     """
-    return {
+    settings = {
         name: {
             "initial_guess": initial_guess,
             "min_bound": min_bound,
@@ -157,6 +163,14 @@ def set_default_values(models):
         }
         for name, (initial_guess, min_bound, max_bound, scaling) in IDENTIFIED_PARAMETERS.items()
     }
+
+    if min_pulse_width:
+        settings["pd0"] = {
+            **settings["pd0"],
+            "max_bound": PD0_MARGIN * min_pulse_width,
+            "initial_guess": min(settings["pd0"]["initial_guess"], 0.5 * PD0_MARGIN * min_pulse_width),
+        }
+    return settings
 
 
 def update_model_param(model, parameters, phase):
@@ -183,7 +197,7 @@ def prepare_ocp(ocp_data, use_sx=False):
     # --- The identified parameters are common to every phase, they are declared once for the whole ocp --- #
     parameters, parameters_bounds, parameters_init = OcpFesId.set_parameters(
         parameter_to_identify=list(IDENTIFIED_PARAMETERS),
-        parameter_setting=set_default_values(models),
+        parameter_setting=set_default_values(models, min_pulse_width=min(ocp_data["pulse_width"])),
         use_sx=use_sx,
     )
 
