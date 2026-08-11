@@ -40,14 +40,14 @@ from helper import debug_plots, results
 
 SUM_STIM_TRUNCATION = 10
 
-# Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound)
+# Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound, scaling).
 IDENTIFIED_PARAMETERS = {
-    "tau1_rest": (0.5, 1e-4, 1),
-    "tau2": (0.5, 1e-4, 1),
-    "km_rest": (0.5, 1e-3, 1),
-    "a_scale": (5000, 1, 10000),
-    "pd0": (1e-4, 1e-5, 6e-4),
-    "pdt": (1e-4, 1e-5, 6e-4),
+    "tau1_rest": (0.11, 1e-4, 1, 0.05),
+    "tau2": (0.14, 1e-4, 1, 0.05),
+    "km_rest": (0.11, 1e-3, 1, 0.1),
+    "a_scale": (900, 1, 10000, 1000.0),
+    "pd0": (1.1e-4, 1e-5, 6e-4, 1e-4),
+    "pdt": (2.0e-4, 1e-5, 6e-4, 1e-4),
 }
 
 
@@ -91,8 +91,9 @@ def get_numerical_data_time_series(model, n_shooting, final_time, stim_time, pre
     stim_time = np.array(model.all_stim)
     dt = final_time / n_shooting
 
-    # For each node, keep the last 'truncation' stimulation times that already occurred
-    node_idx = [np.where(stim_time <= time_offset + i * dt)[0][-1] for i in range(n_shooting + 1)]
+    # For each node, keep the last 'truncation' stimulation times that already occurred.
+    tolerance = 1e-6 * dt
+    node_idx = [np.where(stim_time <= time_offset + i * dt + tolerance)[0][-1] for i in range(n_shooting + 1)]
     stim_time_per_node = np.array([stim_time[: idx + 1][-truncation:] for idx in node_idx])
 
     # Reshape to the (truncation, 1, n_shooting + 1) format bioptim expects
@@ -152,9 +153,9 @@ def set_default_values(models):
             "min_bound": min_bound,
             "max_bound": max_bound,
             "function": [getattr(model, f"set_{name}") for model in models],
-            "scaling": 1,
+            "scaling": scaling,
         }
-        for name, (initial_guess, min_bound, max_bound) in IDENTIFIED_PARAMETERS.items()
+        for name, (initial_guess, min_bound, max_bound, scaling) in IDENTIFIED_PARAMETERS.items()
     }
 
 
@@ -191,7 +192,7 @@ def prepare_ocp(ocp_data, use_sx=False):
             DynamicsOptions(
                 expand_dynamics=True,
                 phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
-                ode_solver=OdeSolver.COLLOCATION(polynomial_degree=3, method="radau"),
+                ode_solver=OdeSolver.COLLOCATION(polynomial_degree=5, method="radau"),
                 numerical_data_timeseries=get_numerical_data_time_series(
                     model=models[i],
                     n_shooting=n_shooting[i],
@@ -349,7 +350,16 @@ def select_trains(ocp_data, keep):
     dict
         The same dictionary restricted to those trains
     """
-    per_train = ("final_time", "frequency", "n_shooting", "force", "pulse_width", "stim_time", "force_decayed")
+    per_train = (
+        "final_time",
+        "frequency",
+        "n_shooting",
+        "force",
+        "pulse_width",
+        "stim_time",
+        "force_decayed",
+        "covers_stimulation",
+    )
     selected = {key: [ocp_data[key][i] for i in keep] for key in per_train if key in ocp_data}
     # The tracking weights balance the phases against each other, they have to be recomputed on the selection
     longest = max(selected["n_shooting"])
@@ -377,7 +387,7 @@ def predict(ocp_data, parameters):
     }
 
 
-def identify(subject, ocp_data, method, plot=True, save=True, debug=True, max_iter=1000, extra=None):
+def identify(subject, ocp_data, method, plot=True, save=True, debug=True, show_debug=None, max_iter=1000, extra=None):
     """
     Identify the model on the given trains, then report, plot and save the result.
 
@@ -389,8 +399,15 @@ def identify(subject, ocp_data, method, plot=True, save=True, debug=True, max_it
         The trains to identify on, as built by load_force_data and possibly restricted by select_trains
     method: str
         The name the result is stored under, ex: "force_id_single" or "force_id_all"
+    plot: bool
+        If the solver's own penalty plot should be shown while it converges
+    debug: bool
+        If the debug figures should be written under results/debug/<method>/P<subject>
+    show_debug: bool
+        If the debug figures should also be opened on screen, which blocks until they are closed. Defaults to
+        `plot`. Saving does not depend on it, so a batch can be run with it off and still leave every figure.
     """
-    debug_plots.set_output(COMPARISON_ROOT / "results" / "debug" / method / f"P{subject}" if debug else None, show=plot)
+    debug_plots.output_for(method, subject, debug=debug, show=plot if show_debug is None else show_debug)
 
     ocp = prepare_ocp(ocp_data)
 

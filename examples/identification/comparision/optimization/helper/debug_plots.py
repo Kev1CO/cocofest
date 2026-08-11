@@ -23,6 +23,9 @@ from matplotlib.patches import Rectangle
 PULSE_WIDTH_RANGE_US = (250.0, 500.0)
 FREQUENCY_RANGE_HZ = (20.0, 50.0)
 
+# Cycled over the extracted phases so that two consecutive ones can be told apart
+PHASE_COLORS = ("tab:red", "tab:purple")
+
 PULSE_WIDTH_CMAP = LinearSegmentedColormap.from_list(
     "pulse_width", ["#bedc7f", "#89a257", "#4d8061", "#305d42", "#1e3a29"]
 )
@@ -78,24 +81,44 @@ def _parameter_table(ax, parameters, title="Identified parameters"):
     )
     table.get_title().set_fontsize(9)
 
+DEBUG_ROOT = Path(__file__).resolve().parent.parent.parent / "results" / "debug"
+
 _output_root: Path | None = None
-_show: bool = True
+_show: bool = False
 
 
-def set_output(folder, show=True):
+def set_output(folder, show=False):
     """
     Send every following debug figure to `folder`, as svg, under a sub folder per stage.
 
     Parameters
     ----------
     folder: str | Path | None
-        The subject's debug folder, ex: results/debug/P01. None disables saving.
+        The subject's debug folder, ex: results/debug/force_id_all/P01. None disables saving.
     show: bool
-        If the figures should also be shown. Set False for batch runs.
+        If the figures should also be opened on screen. Blocks until they are closed, so only for a single run.
     """
     global _output_root, _show
     _output_root = Path(folder) if folder is not None else None
     _show = show
+
+
+def output_for(method, subject, debug=True, show=False):
+    """
+    Point the debug figures at one subject's folder for one stage.
+
+    Parameters
+    ----------
+    method: str
+        The stage name the result is stored under, ex: "force_id_all"
+    subject: str
+        The subject id, ex: "01"
+    debug: bool
+        False disables saving entirely
+    show: bool
+        If the figures should also be opened on screen
+    """
+    set_output(DEBUG_ROOT / method / f"P{subject}" if debug else None, show=show)
 
 
 def _finish(fig, stage, name):
@@ -230,21 +253,39 @@ def plot_phase_extraction(panels, title, unit, scale=1.0, name="phase_extraction
         ax.plot(panel["full_time"], full_data, color="tab:blue", linewidth=1, label="Whole recording")
 
         for i in range(len(panel["phase_data"])):
+            color = PHASE_COLORS[i % len(PHASE_COLORS)]
+            phase_time = np.asarray(panel["phase_times"][i])
+            phase_data = np.asarray(panel["phase_data"][i]) * scale
+
+            ax.axvspan(phase_time[0], phase_time[-1], color=color, alpha=0.08, zorder=0)
+            ax.axvline(phase_time[0], color=color, linewidth=1.0, alpha=0.7, zorder=1)
+            ax.axvline(phase_time[-1], color=color, linewidth=1.0, alpha=0.7, linestyle="--", zorder=1)
             ax.plot(
-                panel["phase_times"][i],
-                np.asarray(panel["phase_data"][i]) * scale,
-                color="tab:red",
+                phase_time,
+                phase_data,
+                color=color,
                 linewidth=2.5,
                 label="Extracted phases" if i == 0 else None,
             )
+            ax.plot(
+                [phase_time[0], phase_time[-1]],
+                [phase_data[0], phase_data[-1]],
+                linestyle="none",
+                marker="o",
+                markersize=4,
+                color=color,
+                markeredgecolor="white",
+                markeredgewidth=0.6,
+                label="Phase start and end" if i == 0 else None,
+            )
             ax.annotate(
                 f"{i}",
-                (panel["phase_times"][i][0], np.max(panel["phase_data"][i]) * scale),
+                (phase_time[0], np.max(phase_data)),
                 textcoords="offset points",
                 xytext=(0, 8),
                 fontsize=11,
                 fontweight="bold",
-                color="tab:red",
+                color=color,
             )
 
         stim_times = panel.get("stim_times")
@@ -403,8 +444,11 @@ def plot_passive_torque(passive_torque, subject, theta_dot=0.0, parameters=None,
     ax.plot(np.rad2deg(theta), torque, color="tab:blue", label="Passive torque")
     ax.axhline(0, color="black", linewidth=0.8)
 
-    for name, label, color in (("theta_min", r"$\theta_{min}$", "tab:grey"), ("theta_max", r"$\theta_{max}$", "black")):
-        angle = getattr(passive_torque, name, None)
+    for attribute, label, color in (
+        ("theta_min", r"$\theta_{min}$", "tab:grey"),
+        ("theta_max", r"$\theta_{max}$", "black"),
+    ):
+        angle = getattr(passive_torque, attribute, None)
         if angle is not None and bounds[0] <= angle <= bounds[1]:
             ax.axvline(np.rad2deg(angle), color=color, linestyle="--", linewidth=1, label=label)
 

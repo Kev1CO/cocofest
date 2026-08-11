@@ -11,12 +11,12 @@ parameter_values    (p,)   their identified value
 parameter_min       (p,)   the bound the identification was given
 parameter_max       (p,)
 parameters_at_bound (b,)   names of those that landed on a bound, i.e. that the data did not constrain
-time                (n,)   time vector of the solution (s)
+time                (n,)   time vector of the solution (s), at the shooting nodes, see solution_at_nodes
 tracked             (n,)   the experimental data that was tracked
 identified          (n,)   the same quantity produced by the identified model
 unit                str    unit of tracked/identified, "N" or "rad"
 rmse                float  in `unit`
-phase_lengths       (k,)   samples per phase, to split time/tracked/identified back into phases
+phase_lengths       (k,)   samples per phase, to split time/tracked/identified back into phases. Sums to n.
 converged           bool   whether the solver reported an optimal solution
 solver_status       int    the solver's own status code, 0 being an optimal solution
 solver_iterations   int
@@ -34,24 +34,79 @@ from pathlib import Path
 
 import numpy as np
 
+from bioptim import SolutionMerge
+
 RESULTS_ROOT = Path(__file__).resolve().parent.parent.parent / "results"
 SUFFIX = ".npz"
 
 
 def rmse(tracked, identified) -> float:
     """Root mean square error between the tracked and the identified signal."""
-    return float(np.sqrt(np.mean((np.asarray(identified) - np.asarray(tracked)) ** 2)))
+    tracked, identified = np.asarray(tracked), np.asarray(identified)
+    if tracked.shape != identified.shape:
+        raise ValueError(
+            f"The tracked signal holds {tracked.shape} samples and the identified one {identified.shape}. "
+            f"They have to be read on the same grid, see solution_at_nodes."
+        )
+    return float(np.sqrt(np.mean((identified - tracked) ** 2)))
 
 
-def parameters_at_bound(ocp, parameters: dict, tolerance: float = 1e-6) -> list:
+def solution_at_nodes(sol, key: str, n_shooting) -> tuple:
+    """
+    The time vector and one state of a solution, read at the shooting nodes only.
+
+    Parameters
+    ----------
+    sol: Solution
+        The solved bioptim solution
+    key: str
+        The state to read, ex: "q"
+    n_shooting: list[int]
+        The number of shooting intervals of every phase, in order
+
+    Returns
+    -------
+    tuple
+        The time vector and the state, both sampled at the shooting nodes and continuous over the phases
+    """
+    times = sol.decision_time(to_merge=[SolutionMerge.NODES])
+    states = sol.decision_states(to_merge=[SolutionMerge.NODES])
+    # A single phase ocp returns the arrays directly rather than a list holding one entry
+    if not isinstance(times, (list, tuple)):
+        times, states = [times], [states]
+
+    node_times, node_states = [], []
+    for phase, intervals in enumerate(n_shooting):
+        time = np.asarray(times[phase]).squeeze()
+        state = np.asarray(states[phase][key]).squeeze()
+        stride = (len(time) - 1) // intervals
+        if stride * intervals + 1 != len(time):
+            raise ValueError(
+                f"Phase {phase} holds {len(time)} decision points for {intervals} shooting intervals, which is "
+                f"not a whole number of points per interval."
+            )
+        node_times.append(time[::stride])
+        node_states.append(state[::stride])
+
+    return np.concatenate(node_times), np.concatenate(node_states)
+
+
+def parameters_at_bound(ocp, parameters: dict, tolerance: float = 1e-3) -> list:
     """
     The names of the identified parameters that landed on one of their bounds, which is the usual sign that the
     data does not constrain them.
+
+    Parameters
+    ----------
+    tolerance: float
+        How close to a bound counts as being on it, as a fraction of that parameter's own range.
     """
     at_bound = []
     for name, value in parameters.items():
         bounds = ocp.parameter_bounds[name]
-        if np.isclose(value, bounds.min.min(), atol=tolerance) or np.isclose(value, bounds.max.max(), atol=tolerance):
+        minimum, maximum = float(bounds.min.min()), float(bounds.max.max())
+        margin = tolerance * (maximum - minimum) if maximum > minimum else tolerance
+        if value - minimum <= margin or maximum - value <= margin:
             at_bound.append(name)
     return at_bound
 

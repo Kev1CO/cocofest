@@ -25,7 +25,6 @@ from bioptim import (
     PhaseDynamics,
     PhaseTransitionFcn,
     PhaseTransitionList,
-    SolutionMerge,
     Solver,
 )
 
@@ -61,11 +60,11 @@ IDENTIFIED_PARAMETERS = {
 }
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
-
 PASSIVE_FLEXION_STOP = {
     "riener": ["a3", "a4"],
     "double_exponential": ["k3", "k4", "theta_max"],
 }
+PASSIVE_CLIP_MARGIN = 0.15
 
 
 # ---- Reading the experimental flexions ---- #
@@ -227,9 +226,39 @@ def get_numerical_data_time_series(model, n_shooting, final_time, stim_time, pre
     all_stim = np.array(model.all_stim)
     dt = final_time / n_shooting
 
-    node_idx = [np.where(all_stim <= time_offset + i * dt)[0][-1] for i in range(n_shooting + 1)]
+    tolerance = 1e-6 * dt
+    node_idx = [np.where(all_stim <= time_offset + i * dt + tolerance)[0][-1] for i in range(n_shooting + 1)]
     stim_time_per_node = np.array([all_stim[: idx + 1][-truncation:] for idx in node_idx])
     return {"stim_time": np.transpose(stim_time_per_node[:, np.newaxis, :], (2, 1, 0))}
+
+
+def aligned_shooting_grid(final_time, stim_time, target_n_shooting):
+    """
+    A node grid whose interval is a whole fraction of the stimulation period.
+
+    Parameters
+    ----------
+    final_time: float
+        The measured duration of the phase (s)
+    stim_time: list | np.ndarray
+        The stimulation times of the phase, from its start (s)
+    target_n_shooting: int
+        The number of nodes asked for, matched as closely as the period allows
+
+    Returns
+    -------
+    tuple
+        The number of shooting intervals, and the phase duration rounded to a whole number of them
+    """
+    stim_time = np.asarray(stim_time, dtype=float)
+    if stim_time.size < 2 or final_time <= 0:
+        return target_n_shooting, final_time
+
+    period = float(np.median(np.diff(stim_time)))
+    subdivisions = max(1, int(round(period * target_n_shooting / final_time)))
+    dt = period / subdivisions
+    n_shooting = max(1, int(round(final_time / dt)))
+    return n_shooting, n_shooting * dt
 
 
 def build_model(model_path, stim_time, passive_torque, parameters=None):
@@ -319,6 +348,7 @@ def prepare_ocp(
     formulation="riener",
     n_shooting_per_phase=90,
     fixed_parameters=None,
+    clip_margin=PASSIVE_CLIP_MARGIN,
     use_sx=False,
 ):
     """
@@ -334,10 +364,13 @@ def prepare_ocp(
         The articular torque identified beforehand
     n_shooting_per_phase: int
         The number of shooting points of each phase, the measured angle is resampled on them
+    clip_margin: float
+        How far beyond the reached angles the passive torque stays live, see PASSIVE_CLIP_MARGIN
     """
     # The passive torque is used over the angles this movement reaches, not over the ones the relaxations reached.
     reached = np.concatenate([phase["q"] for phase in phases])
-    passive_torque.theta_bounds = (float(reached.min()), float(reached.max()))
+    margin = clip_margin * float(reached.max() - reached.min())
+    passive_torque.theta_bounds = (float(reached.min()) - margin, float(reached.max()) + margin)
 
     settings = set_default_values(passive_torque, formulation, max_elbow_position=float(reached.max()))
 
@@ -361,10 +394,15 @@ def prepare_ocp(
     objective_functions = ObjectiveList()
     targets = []
 
+    # One grid per phase, aligned on its own stimulation period
+    grid = [aligned_shooting_grid(phase["final_time"], phase["stim_time"], n_shooting_per_phase) for phase in phases]
+    final_times = [duration for _, duration in grid]
+    offsets = np.concatenate(([0.0], np.cumsum(final_times)[:-1]))
+
     for i, (model, phase) in enumerate(zip(models, phases)):
-        n_shooting = n_shooting_per_phase
+        n_shooting, final_time = grid[i]
         target = np.interp(
-            np.linspace(0, phase["final_time"], n_shooting + 1),
+            np.linspace(0, final_time, n_shooting + 1),
             phase["time"] - phase["time"][0],
             phase["q"],
         )
@@ -374,14 +412,14 @@ def prepare_ocp(
             DynamicsOptions(
                 expand_dynamics=True,
                 phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
-                ode_solver=OdeSolver.RK4(n_integration_steps=5),
+                ode_solver=OdeSolver.COLLOCATION(polynomial_degree=5, method="radau"),
                 numerical_data_timeseries=get_numerical_data_time_series(
                     model=muscle_models[i],
                     n_shooting=n_shooting,
-                    final_time=phase["final_time"],
+                    final_time=final_time,
                     stim_time=phase["stim_time"],
                     previous_model=muscle_models[i - 1] if i > 0 else None,
-                    time_offset=phase["time_offset"],
+                    time_offset=float(offsets[i]),
                 ),
                 phase=i,
             )
@@ -409,7 +447,7 @@ def prepare_ocp(
         x_init.add(key="q", initial_guess=target[np.newaxis, :], interpolation=InterpolationType.EACH_FRAME, phase=i)
         x_init.add(
             key="qdot",
-            initial_guess=np.gradient(target, phase["final_time"] / n_shooting)[np.newaxis, :],
+            initial_guess=np.gradient(target, final_time / n_shooting)[np.newaxis, :],
             interpolation=InterpolationType.EACH_FRAME,
             phase=i,
         )
@@ -442,8 +480,8 @@ def prepare_ocp(
     ocp = OptimalControlProgram(
         bio_model=models,
         dynamics=dynamics,
-        n_shooting=[n_shooting_per_phase] * len(phases),
-        phase_time=[phase["final_time"] for phase in phases],
+        n_shooting=[intervals for intervals, _ in grid],
+        phase_time=final_times,
         x_init=x_init,
         x_bounds=x_bounds,
         u_init=u_init,
@@ -457,7 +495,7 @@ def prepare_ocp(
         use_sx=use_sx,
         n_threads=20,
     )
-    return ocp, targets
+    return ocp, targets, final_times
 
 
 def update_model(model, parameters):
@@ -503,20 +541,13 @@ def predict(subject, phases, parameters, passive_method, max_iter=300):
     """
     passive_torque, formulation, _ = load_passive_torque(subject, passive_method)
     model_path = str(COMPARISON_ROOT / "model" / f"p{subject}_scaling_scaled.bioMod")
-    ocp, targets = prepare_ocp(
+    ocp, targets, final_times = prepare_ocp(
         model_path, phases, passive_torque, formulation=formulation, fixed_parameters=parameters
     )
     sol = ocp.solve(Solver.IPOPT(_max_iter=max_iter))
 
-    time = sol.decision_time(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES]).T[0]
-    q_identified = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["q"][0]
-    q_tracked = np.interp(
-        time,
-        np.concatenate(
-            [phase["time_offset"] + np.linspace(0, phase["final_time"], len(t)) for phase, t in zip(phases, targets)]
-        ),
-        np.concatenate(targets),
-    )
+    time, q_identified = results.solution_at_nodes(sol, "q", [len(target) - 1 for target in targets])
+    q_tracked = np.concatenate(targets)
     return {
         "time": time,
         "identified": q_identified,
@@ -527,7 +558,9 @@ def predict(subject, phases, parameters, passive_method, max_iter=300):
 
 
 # ---- Running it ---- #
-def identify(subject, phases, method, passive_method, plot=True, save=True, debug=True, max_iter=1000, extra=None):
+def identify(
+    subject, phases, method, passive_method, plot=True, save=True, debug=True, show_debug=None, max_iter=1000, extra=None
+):
     """
     Identify the FES model of one subject on the flexion phases given to it.
 
@@ -541,8 +574,10 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
         The name the result is stored under, ex: "movement_id_all"
     passive_method: str
         The stored passive torque identification to take the articular torque from
+    show_debug: bool
+        If the debug figures should also be opened on screen. Defaults to `plot`, see force_ocp.identify.
     """
-    debug_plots.set_output(COMPARISON_ROOT / "results" / "debug" / method / f"P{subject}" if debug else None, show=plot)
+    debug_plots.output_for(method, subject, debug=debug, show=plot if show_debug is None else show_debug)
 
     passive_torque, formulation, passive_path = load_passive_torque(subject, passive_method)
     if passive_torque is None:
@@ -550,7 +585,7 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
         return
 
     model_path = str(COMPARISON_ROOT / "model" / f"p{subject}_scaling_scaled.bioMod")
-    ocp, targets = prepare_ocp(model_path, phases, passive_torque, formulation=formulation)
+    ocp, targets, final_times = prepare_ocp(model_path, phases, passive_torque, formulation=formulation)
 
     # --- Debug, pre ocp: the target the cost function actually holds, read back from the built ocp --- #
     if debug:
@@ -558,8 +593,10 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
             raw_time=[phase["global_time"] for phase in phases],
             raw_data=[phase["q"] for phase in phases],
             target_time=[
-                phase["time_offset"] + np.linspace(0, phase["final_time"], len(target))[:-1]
-                for phase, target in zip(phases, targets)
+                offset + np.linspace(0, duration, len(target))[:-1]
+                for offset, duration, target in zip(
+                    np.concatenate(([0.0], np.cumsum(final_times)[:-1])), final_times, targets
+                )
             ],
             target=debug_plots.cost_function_target(ocp, key="q"),
             title=f"P{subject} elbow angle target held by the cost function",
@@ -572,15 +609,8 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
         ocp.add_plot_penalty(CostType.ALL)
     sol = ocp.solve(Solver.IPOPT(_max_iter=max_iter))
 
-    time = sol.decision_time(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES]).T[0]
-    q_identified = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["q"][0]
-    q_tracked = np.interp(
-        time,
-        np.concatenate(
-            [phase["time_offset"] + np.linspace(0, phase["final_time"], len(t)) for phase, t in zip(phases, targets)]
-        ),
-        np.concatenate(targets),
-    )
+    time, q_identified = results.solution_at_nodes(sol, "q", [len(target) - 1 for target in targets])
+    q_tracked = np.concatenate(targets)
     parameters = {key: float(value.squeeze()) for key, value in sol.decision_parameters().items()}
     at_bound = results.parameters_at_bound(ocp, parameters)
 
@@ -590,16 +620,16 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
 
     if plot or debug:
         offset, conditions = 0.0, []
-        for phase in phases:
+        for phase, duration in zip(phases, final_times):
             conditions.append(
                 {
                     "t_start": offset,
-                    "t_end": offset + phase["final_time"],
+                    "t_end": offset + duration,
                     "pulse_width_us": phase["pulse_width"] * 1e6,
                     "frequency_hz": phase["frequency"],
                 }
             )
-            offset += phase["final_time"]
+            offset += duration
 
         debug_plots.plot_solution(
             time=time,
@@ -609,6 +639,7 @@ def identify(subject, phases, method, passive_method, plot=True, save=True, debu
             unit="deg",
             ylabel="Joint angle (deg)",
             scale=180 / np.pi,
+            phase_lengths=[len(target) for target in targets],
             conditions=conditions,
             parameters=parameters,
             name="movement_identification",

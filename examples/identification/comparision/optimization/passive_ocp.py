@@ -29,7 +29,6 @@ from bioptim import (
     PhaseDynamics,
     PhaseTransitionFcn,
     PhaseTransitionList,
-    SolutionMerge,
     Solver,
 )
 
@@ -53,8 +52,10 @@ FORMULATIONS = {
 }
 
 MAX_PHASE_DURATION = 3.5
+MIN_PHASE_DURATION = 0.3
 SETTLED_SPEED_FRACTION = 0.05
 SETTLED_QUIET_DURATION = 0.15
+INITIAL_VELOCITY_TOLERANCE = 0  # rad/s
 
 
 def find_motion_file(subject_folder, subject, frequency, weight):
@@ -107,8 +108,13 @@ def slicing(q, time, stim_time):
         if relaxation.size < 3:
             continue
 
-        # Stop the phase once the elbow has settled
-        end = settled_end(q[relaxation], time[relaxation])
+        relaxation_q = q[relaxation]
+        half_way = relaxation_q[0] - 0.5 * (relaxation_q[0] - relaxation_q.min())
+        descended = np.where(relaxation_q <= half_way)[0]
+
+        end = settled_end(
+            relaxation_q, time[relaxation], search_from=int(descended[0]) if descended.size else 0
+        )
         relaxation = relaxation[:end]
         if relaxation.size < 3:
             continue
@@ -156,7 +162,9 @@ def settled_end(q, time, speed_fraction=SETTLED_SPEED_FRACTION, quiet_duration=S
 ALL_CONDITIONS = [(20, False), (33, False), (50, False)]
 
 
-def relaxation_phases(subject, frequency, weight, debug=False, max_duration=MAX_PHASE_DURATION):
+def relaxation_phases(
+    subject, frequency, weight, debug=False, max_duration=MAX_PHASE_DURATION, min_duration=MIN_PHASE_DURATION
+):
     """
     The relaxation phases of ONE motion recording.
 
@@ -172,6 +180,8 @@ def relaxation_phases(subject, frequency, weight, debug=False, max_duration=MAX_
         If the extraction should be plotted
     max_duration: float
         Phases longer than this are dropped, see MAX_PHASE_DURATION
+    min_duration: float
+        Phases shorter than this are dropped, see MIN_PHASE_DURATION
 
     Returns
     -------
@@ -186,7 +196,13 @@ def relaxation_phases(subject, frequency, weight, debug=False, max_duration=MAX_
     stim_time = converter.get_sliced_stim_time()["stim_time"]
     q_rad, time = slicing(converter.get_q_rad(), converter.get_time(), stim_time)
 
-    kept = [i for i in range(len(time)) if time[i][-1] - time[i][0] <= max_duration]
+    kept = []
+    for i in range(len(time)):
+        duration = time[i][-1] - time[i][0]
+        if duration > max_duration or duration < min_duration:
+            print(f"  P{subject} {frequency}Hz relaxation {i} dropped: lasts {duration:.3f}s")
+            continue
+        kept.append(i)
 
     panel = {
         "full_time": converter.get_time(),
@@ -258,6 +274,8 @@ def prepare_ocp(
     max_elbow_position,
     formulation="double_exponential",
     fixed_parameters=None,
+    initial_guess=None,
+    initial_velocity_tolerance=INITIAL_VELOCITY_TOLERANCE,
     use_sx=False,
 ):
     """
@@ -275,6 +293,9 @@ def prepare_ocp(
         The measured maximal elbow flexion of the subject (rad)
     formulation: str
         Which passive torque formulation to identify, a key of FORMULATIONS
+    initial_velocity_tolerance: float
+        How far the first velocity of a phase may sit from the one measured there (rad/s). 0 pins it to the
+        measurement, see INITIAL_VELOCITY_TOLERANCE.
     use_sx: bool
         If the ocp should use SX instead of MX variables
     """
@@ -285,6 +306,11 @@ def prepare_ocp(
     passive_torque_class, key_parameter_to_identify = FORMULATIONS[formulation]
     passive_torque = passive_torque_class()
     settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
+
+    # Only moves where the search starts from, contrary to fixed_parameters which also pins the bounds
+    for name, value in (initial_guess or {}).items():
+        if name in settings:
+            settings[name] = {**settings[name], "initial_guess": value}
 
     for name, value in (fixed_parameters or {}).items():
         if name in settings:
@@ -312,23 +338,26 @@ def prepare_ocp(
             DynamicsOptions(
                 expand_dynamics=True,
                 phase_dynamics=PhaseDynamics.SHARED_DURING_THE_PHASE,
-                ode_solver=OdeSolver.RK4(n_integration_steps=10),
+                ode_solver=OdeSolver.COLLOCATION(polynomial_degree=5, method="radau"),
                 phase=i,
             )
         )
 
-        # The phase starts at the measured angle, with a zero velocity (the elbow is at the top of its motion)
+        # The phase starts at the measured angle and the measured velocity, see INITIAL_VELOCITY_TOLERANCE
+        measured_qdot = np.gradient(q_target[i], final_time[i] / n_shooting_list[i])
+
         q_x_bounds = models[i].bounds_from_ranges("q")
         q_x_bounds.min[0][0] = q_x_bounds.max[0][0] = q_target[i][0]
         qdot_x_bounds = models[i].bounds_from_ranges("qdot")
-        qdot_x_bounds.min[0][0] = qdot_x_bounds.max[0][0] = 0
+        qdot_x_bounds.min[0][0] = measured_qdot[0] - initial_velocity_tolerance
+        qdot_x_bounds.max[0][0] = measured_qdot[0] + initial_velocity_tolerance
         x_bounds.add(key="q", bounds=q_x_bounds, phase=i)
         x_bounds.add(key="qdot", bounds=qdot_x_bounds, phase=i)
 
         x_init.add(key="q", initial_guess=q_target[i][np.newaxis, :], interpolation=InterpolationType.EACH_FRAME, phase=i)
         x_init.add(
             key="qdot",
-            initial_guess=np.gradient(q_target[i], final_time[i] / n_shooting_list[i])[np.newaxis, :],
+            initial_guess=measured_qdot[np.newaxis, :],
             interpolation=InterpolationType.EACH_FRAME,
             phase=i,
         )
@@ -390,8 +419,8 @@ def predict(subject, global_q, global_final_time, global_time, parameters, formu
     )
     sol = ocp.solve(Solver.IPOPT(_max_iter=max_iter))
 
-    time = sol.decision_time(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES]).T[0]
-    q_identified = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["q"][0]
+    # Read at the shooting nodes, where the tracked angle is defined
+    time, q_identified = results.solution_at_nodes(sol, "q", [len(phase) - 1 for phase in global_q])
     q_tracked = np.concatenate(global_q)
     return {
         "time": time,
@@ -409,9 +438,11 @@ def identify(
     global_time,
     method,
     formulation="riener",
+    initial_guess=None,
     plot=True,
     save=True,
     debug=True,
+    show_debug=None,
     max_iter=1000,
     extra=None,
 ):
@@ -429,9 +460,13 @@ def identify(
     formulation: str
         Which passive torque formulation to identify: "double_exponential" (the sigmoid gated form) or "riener"
         (Riener and Edrich). See FORMULATIONS.
+    show_debug: bool
+        If the debug figures should also be opened on screen. Defaults to `plot`, see force_ocp.identify.
     """
     if formulation not in FORMULATIONS:
         raise ValueError(f"Unknown formulation '{formulation}', pick one of {sorted(FORMULATIONS)}.")
+
+    debug_plots.output_for(method, subject, debug=debug, show=plot if show_debug is None else show_debug)
     passive_torque_class, _ = FORMULATIONS[formulation]
     participants = pd.read_excel(COMPARISON_ROOT / "data" / "exp" / "data_participants.xlsx")
 
@@ -442,6 +477,7 @@ def identify(
         q_target=global_q,
         max_elbow_position=np.deg2rad(180 - elbow_joint_limit),
         formulation=formulation,
+        initial_guess=initial_guess,
     )
 
     # --- Debug, pre ocp: the target the cost function actually holds --- #
@@ -461,8 +497,8 @@ def identify(
         ocp.add_plot_penalty(CostType.ALL)
     sol = ocp.solve(Solver.IPOPT(_max_iter=max_iter))
 
-    time = sol.decision_time(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES]).T[0]
-    q_identified = sol.decision_states(to_merge=[SolutionMerge.NODES, SolutionMerge.PHASES])["q"][0]
+    # Read at the shooting nodes, where the tracked angle is defined
+    time, q_identified = results.solution_at_nodes(sol, "q", [len(phase) - 1 for phase in global_q])
     q_tracked = np.concatenate(global_q)
     parameters = {key: float(value.squeeze()) for key, value in sol.decision_parameters().items()}
     at_bound = results.parameters_at_bound(ocp, parameters)

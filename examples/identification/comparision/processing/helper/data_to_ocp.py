@@ -30,6 +30,30 @@ class DataToOCP:
             force_at_shooting = interp_func(shooting_times)
             return force_at_shooting[np.newaxis, :]
 
+    @staticmethod
+    def stimulation_period(stim_time, frequency):
+        """
+        The period the train was actually delivered at, in seconds, measured from the detected pulses.
+
+        Not 1/frequency: the "33 Hz" condition is delivered at 33.33 Hz (0.030 s), while 20 and 50 Hz are exact.
+
+        Parameters
+        ----------
+        stim_time: list | np.ndarray
+            The detected stimulation times of one train (s)
+        frequency: float
+            The nominal stimulation frequency of the condition (Hz), used as a fallback
+
+        Returns
+        -------
+        float
+            The stimulation period to rebuild the train on (s)
+        """
+        stim_time = np.asarray(stim_time, dtype=float)
+        if stim_time.size < 3:
+            return 1 / frequency
+        return float(np.median(np.diff(stim_time)))
+
     def get_data_for_ocp(self, plot=False):
         if len(self.data_dictionary) == 0:
             raise ValueError("No data loaded. Please load data using the open_files method before calling get_data_for_ocp.")
@@ -42,13 +66,15 @@ class DataToOCP:
         pulse_width = []
         stim_time = []
         force_decayed = []
+        covers_stimulation = []
 
         for data in self.data_dictionary:
             for i in range(len(data["time"])):
-                # False when the force never came back near zero, i.e. a train dominated by drift. 
+                # False when the force never came back near zero, i.e. a train dominated by drift.
                 force_decayed.append(bool(data.get("force_decayed", [True] * len(data["time"]))[i]))
                 phase_time = data["time"][i][-1] - data["time"][i][0]
-                denominator = 1/data["frequency"]
+                # One shooting interval per stimulation period, so that every node falls on a pulse
+                denominator = self.stimulation_period(data["stim_time"][i], data["frequency"])
                 shooting_nodes = int(phase_time / denominator)
                 time_to_freq = shooting_nodes * denominator
                 final_time.append(time_to_freq)
@@ -56,9 +82,14 @@ class DataToOCP:
                 n_shooting.append(shooting_nodes)
                 pulse_width.append(data["pulse_width"][i]/1e6)
                 last_stim_time = data["stim_time"][i][-1] - data["stim_time"][i][0]
-                nb_stim = int(last_stim_time / denominator)
-                round_last_stim_time = nb_stim * denominator
-                stim_time.append(list(np.linspace(0, round_last_stim_time, nb_stim + 1)))
+                # Rounded, not truncated: truncating dropped the last pulse on negative detection jitter
+                nb_stim = int(round(last_stim_time / denominator))
+                # Built as exact multiples of the period, on the same grid the shooting nodes are built on
+                stim_time.append(list(np.arange(nb_stim + 1) * denominator))
+
+                # False when the force channel stops before the last pulse, i.e. the recording was cut mid train
+                covers_stimulation.append(bool(phase_time >= last_stim_time))
+
                 time_in_phase = np.array(data["time"][i]) - data["time"][i][0]
                 force.append(self.force_to_ocp(data["force"][i], time_in_phase, shooting_nodes, time_to_freq))
 
@@ -81,6 +112,7 @@ class DataToOCP:
         "pulse_width": pulse_width,
         "stim_time": stim_time,
         "force_decayed": force_decayed,
+        "covers_stimulation": covers_stimulation,
         }
 
         return ocp_dict
