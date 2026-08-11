@@ -69,9 +69,8 @@ PASSIVE_CLIP_MARGIN = 0.15
 TRUNCATED_TRAIN_FRACTION = 0.5
 PD0_MARGIN = 0.95
 
-PDT_FLOOR = 1e-4
-
-# Initial guess of (Cn, F) away from the first node, see prepare_ocp. Only has to be off zero.
+# Initial guess of (Cn, F) after the first node. (0, 0) is rest, which leaves four muscle parameters
+# with an exactly zero Jacobian column at iteration 0, see prepare_ocp.
 MUSCLE_STATE_GUESS = (0.3, 25.0)
 PULSE_WIDTH_SCALING = 1e-4
 
@@ -352,11 +351,6 @@ def set_default_values(passive_torque, formulation, max_elbow_position, min_puls
         pd0["max_bound"] = PD0_MARGIN * min_pulse_width
         pd0["initial_guess"] = min(pd0["initial_guess"], 0.5 * pd0["max_bound"])
         settings["pd0"] = pd0
-
-    pdt = dict(settings["pdt"])
-    pdt["min_bound"] = max(pdt["min_bound"], PDT_FLOOR)
-    pdt["initial_guess"] = max(pdt["initial_guess"], pdt["min_bound"])
-    settings["pdt"] = pdt
 
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
