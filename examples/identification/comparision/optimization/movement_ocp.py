@@ -16,6 +16,7 @@ from bioptim import (
     DynamicsOptions,
     DynamicsOptionsList,
     InitialGuessList,
+    VariableScalingList,
     InterpolationType,
     Node,
     ObjectiveFcn,
@@ -51,12 +52,12 @@ SEEDS_PULSE_WIDTH_PATH = COMPARISON_ROOT / "processing" / "helper" / "seeds_puls
 
 # Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound, scaling).
 IDENTIFIED_PARAMETERS = {
-    "tau1_rest": (0.06, 0.01, 0.5, 0.05),
-    "tau2": (0.05, 1e-4, 0.5, 0.05),
-    "km_rest": (0.14, 0.01, 1, 0.1),
-    "a_scale": (5000, 100, 10000, 1000.0),
-    "pd0": (1.3e-4, 1e-5, 6e-4, 1e-4),
-    "pdt": (1.9e-4, 1e-5, 6e-4, 1e-4),
+    "tau1_rest": (0.11, 0.01, 0.5, 0.05),
+    "tau2": (0.14, 1e-4, 0.5, 0.05),
+    "km_rest": (0.11, 0.01, 1, 0.1),
+    "a_scale": (900, 100, 10000, 1000.0),
+    "pd0": (1.1e-4, 1e-5, 6e-4, 1e-4),
+    "pdt": (2.0e-4, 1e-5, 6e-4, 1e-4),
 }
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
@@ -67,6 +68,12 @@ PASSIVE_FLEXION_STOP = {
 PASSIVE_CLIP_MARGIN = 0.15
 TRUNCATED_TRAIN_FRACTION = 0.5
 PD0_MARGIN = 0.95
+
+PDT_FLOOR = 1e-4
+
+# Initial guess of (Cn, F) away from the first node, see prepare_ocp. Only has to be off zero.
+MUSCLE_STATE_GUESS = (0.3, 25.0)
+PULSE_WIDTH_SCALING = 1e-4
 
 
 # ---- Reading the experimental flexions ---- #
@@ -346,6 +353,11 @@ def set_default_values(passive_torque, formulation, max_elbow_position, min_puls
         pd0["initial_guess"] = min(pd0["initial_guess"], 0.5 * pd0["max_bound"])
         settings["pd0"] = pd0
 
+    pdt = dict(settings["pdt"])
+    pdt["min_bound"] = max(pdt["min_bound"], PDT_FLOOR)
+    pdt["initial_guess"] = max(pdt["initial_guess"], pdt["min_bound"])
+    settings["pdt"] = pdt
+
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
     for name in PASSIVE_FLEXION_STOP[formulation]:
@@ -418,6 +430,7 @@ def prepare_ocp(
     dynamics = DynamicsOptionsList()
     x_bounds, x_init = BoundsList(), InitialGuessList()
     u_bounds, u_init = BoundsList(), InitialGuessList()
+    u_scaling = VariableScalingList()
     objective_functions = ObjectiveList()
     targets = []
 
@@ -463,7 +476,10 @@ def prepare_ocp(
                 phase=i,
                 interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
             )
-            x_init.add(name, rest[j], phase=i)
+ 
+            guess = np.full((1, n_shooting + 1), MUSCLE_STATE_GUESS[j])
+            guess[0, 0] = float(np.squeeze(rest[j]))
+            x_init.add(name, guess, interpolation=InterpolationType.EACH_FRAME, phase=i)
 
         q_bounds = model.bounds_from_ranges("q")
         q_bounds.min[0][0] = q_bounds.max[0][0] = target[0]
@@ -484,6 +500,7 @@ def prepare_ocp(
         control = np.array([[phase["pulse_width"]] * n_shooting])
         u_init.add(key=key, initial_guess=control, interpolation=InterpolationType.EACH_FRAME, phase=i)
         u_bounds.add(key, min_bound=control, max_bound=control, interpolation=InterpolationType.EACH_FRAME, phase=i)
+        u_scaling.add(key=key, scaling=[PULSE_WIDTH_SCALING], phase=i)
 
         objective_functions.add(
             ObjectiveFcn.Lagrange.MINIMIZE_STATE,
@@ -513,6 +530,7 @@ def prepare_ocp(
         x_bounds=x_bounds,
         u_init=u_init,
         u_bounds=u_bounds,
+        u_scaling=u_scaling,
         objective_functions=objective_functions,
         parameters=parameters,
         parameter_bounds=parameters_bounds,
