@@ -51,20 +51,26 @@ NON_WEIGHTED_FREQUENCIES = [20, 33, 50]
 SEEDS_PULSE_WIDTH_PATH = COMPARISON_ROOT / "processing" / "helper" / "seeds_pulse_width.pkl"
 
 # Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound, scaling).
+# Lower bounds at 0.2x the guess: near-zero time constants send the dynamics into silent NaNs.
 IDENTIFIED_PARAMETERS = {
-    "tau1_rest": (0.11, 0.01, 0.5, 0.05),
-    "tau2": (0.14, 1e-4, 0.5, 0.05),
-    "km_rest": (0.11, 0.01, 1, 0.1),
-    "a_scale": (900, 100, 10000, 1000.0),
-    "pd0": (1.1e-4, 1e-5, 6e-4, 1e-4),
-    "pdt": (2.0e-4, 1e-5, 6e-4, 1e-4),
+    "tau1_rest": (0.11, 0.022, 0.5, 0.05),
+    "tau2": (0.14, 0.028, 0.5, 0.05),
+    "km_rest": (0.11, 0.022, 1, 0.1),
+    "a_scale": (900, 180, 10000, 1000.0),
+    "pd0": (1.1e-4, 2.2e-5, 6e-4, 1e-4),
+    "pdt": (2.0e-4, 4e-5, 6e-4, 1e-4),
 }
+
+# Held at their literature value: correlated above 0.95 with a_scale, so only one of the block is identifiable
+FIXED_AT_LITERATURE = {"pd0": 1.31405e-4, "pdt": 1.94138e-4, "tau2": 0.06}
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
 PASSIVE_FLEXION_STOP = {
     "riener": ["stop_torque", "stop_rate"],
     "double_exponential": ["k3", "k4", "theta_max"],
 }
+# Widened: the shipped range saturated on 6 subjects for stop_torque and 8 for stop_rate
+PASSIVE_STOP_BOUNDS = {"stop_torque": (0.5, 60.0), "stop_rate": (0.5, 15.0)}
 PASSIVE_CLIP_MARGIN = 0.15
 TRUNCATED_TRAIN_FRACTION = 0.5
 PD0_MARGIN = 0.95
@@ -72,6 +78,8 @@ PD0_MARGIN = 0.95
 # Initial guess of (Cn, F) after the first node. (0, 0) is rest, which leaves four muscle parameters
 # with an exactly zero Jacobian column at iteration 0, see prepare_ocp.
 MUSCLE_STATE_GUESS = (0.3, 25.0)
+# Ceiling of the F state (N). The cocofest default of 248 N sits below the 458 N measured on this cohort.
+FMAX = 1000.0
 PULSE_WIDTH_SCALING = 1e-4
 
 
@@ -277,10 +285,12 @@ def aligned_shooting_grid(final_time, stim_time, target_n_shooting):
 
 def build_model(model_path, stim_time, passive_torque, parameters=None):
     """The FES driven musculoskeletal model of the elbow, carrying the identified passive articular torque."""
+    muscle = DingModelPulseWidthFrequency(muscle_name=MUSCLE_NAME, sum_stim_truncation=SUM_STIM_TRUNCATION)
+    muscle.fmax = FMAX
     return PassiveTorqueFesMskModel(
         name=None,
         biorbd_path=model_path,
-        muscles_model=[DingModelPulseWidthFrequency(muscle_name=MUSCLE_NAME, sum_stim_truncation=SUM_STIM_TRUNCATION)],
+        muscles_model=[muscle],
         stim_time=list(stim_time),
         activate_force_length_relationship=ACTIVATE_FORCE_LENGTH_RELATIONSHIP,
         activate_force_velocity_relationship=ACTIVATE_FORCE_VELOCITY_RELATIONSHIP,
@@ -320,7 +330,9 @@ def _passive_setter(name):
     return setter
 
 
-def set_default_values(passive_torque, formulation, max_elbow_position, min_pulse_width=None):
+def set_default_values(
+    passive_torque, formulation, max_elbow_position, min_pulse_width=None, include_passive_stop=True
+):
     """
     The identification settings of the muscle parameters, plus the flexion stop of the passive torque.
 
@@ -334,6 +346,8 @@ def set_default_values(passive_torque, formulation, max_elbow_position, min_puls
         Used by the double exponential settings for the bounds of theta_max (rad)
     min_pulse_width: float
         The smallest pulse width the subject actually received (s), which caps pd0. See PD0_MARGIN.
+    include_passive_stop: bool
+        Whether the flexion stop is re-identified here, or kept as the relaxations found it
     """
     settings = {
         name: {
@@ -352,6 +366,8 @@ def set_default_values(passive_torque, formulation, max_elbow_position, min_puls
         pd0["initial_guess"] = min(pd0["initial_guess"], 0.5 * pd0["max_bound"])
         settings["pd0"] = pd0
 
+    if not include_passive_stop:
+        return settings
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
     for name in PASSIVE_FLEXION_STOP[formulation]:
@@ -361,7 +377,11 @@ def set_default_values(passive_torque, formulation, max_elbow_position, min_puls
         if found is None:
             found = getattr(passive_torque, f"_{name}", None)
         if found is not None:
-            setting["initial_guess"] = float(found)
+            # Clipped: without an identified flexion limit, stop_torque comes back as exp(a3), far under its bound
+            setting["initial_guess"] = float(np.clip(found, setting["min_bound"], setting["max_bound"]))
+        if name in PASSIVE_STOP_BOUNDS:
+            setting["min_bound"], setting["max_bound"] = PASSIVE_STOP_BOUNDS[name]
+            setting["initial_guess"] = float(np.clip(setting["initial_guess"], *PASSIVE_STOP_BOUNDS[name]))
         setting["function"] = _passive_setter(name)
         settings[name] = setting
 
@@ -377,6 +397,10 @@ def prepare_ocp(
     fixed_parameters=None,
     clip_margin=PASSIVE_CLIP_MARGIN,
     use_sx=False,
+    identify_passive_stop=True,
+    initial_states=None,
+    initial_guesses=None,
+    passive_theta_bounds=None,
 ):
     """
     Build the multiphase ocp identifying the FES model over every measured flexion at once.
@@ -393,11 +417,23 @@ def prepare_ocp(
         The number of shooting points of each phase, the measured angle is resampled on them
     clip_margin: float
         How far beyond the reached angles the passive torque stays live, see PASSIVE_CLIP_MARGIN
+    identify_passive_stop: bool
+        Whether the flexion stop of the passive torque is identified alongside the Ding model
+    initial_states: list
+        One (4, n_shooting + 1) array per phase, holding Cn, F, q and qdot to start from
+    initial_guesses: dict
+        Where each named parameter starts from, clipped to its bounds
+    passive_theta_bounds: tuple
+        The angle range the passive torque stays live over, given explicitly so two ocps can share it
     """
     # The passive torque is used over the angles this movement reaches, not over the ones the relaxations reached.
     reached = np.concatenate([phase["q"] for phase in phases])
     margin = clip_margin * float(reached.max() - reached.min())
-    passive_torque.theta_bounds = (float(reached.min()) - margin, float(reached.max()) + margin)
+    passive_torque.theta_bounds = (
+        passive_theta_bounds
+        if passive_theta_bounds is not None
+        else (float(reached.min()) - margin, float(reached.max()) + margin)
+    )
 
     anchor = getattr(passive_torque, "flexion_limit", None)
     settings = set_default_values(
@@ -405,10 +441,18 @@ def prepare_ocp(
         formulation,
         max_elbow_position=max(float(anchor or 0.0), float(reached.max())),
         min_pulse_width=min(phase["pulse_width"] for phase in phases),
+        include_passive_stop=identify_passive_stop,
     )
+
+    for name, value in (initial_guesses or {}).items():
+        if name in settings:
+            bounds = (settings[name]["min_bound"], settings[name]["max_bound"])
+            settings[name] = {**settings[name], "initial_guess": float(np.clip(value, *bounds))}
 
     for name, value in (fixed_parameters or {}).items():
         if name in settings:
+            # None pins the parameter where set_default_values put it
+            value = settings[name]["initial_guess"] if value is None else value
             settings[name] = {**settings[name], "initial_guess": value, "min_bound": value, "max_bound": value}
 
     # --- The identified parameters are common to every phase, declared once for the whole ocp --- #
@@ -471,8 +515,11 @@ def prepare_ocp(
                 interpolation=InterpolationType.CONSTANT_WITH_FIRST_AND_LAST_DIFFERENT,
             )
  
-            guess = np.full((1, n_shooting + 1), MUSCLE_STATE_GUESS[j])
-            guess[0, 0] = float(np.squeeze(rest[j]))
+            if initial_states is None:
+                guess = np.full((1, n_shooting + 1), MUSCLE_STATE_GUESS[j])
+                guess[0, 0] = float(np.squeeze(rest[j]))
+            else:
+                guess = np.asarray(initial_states[i], dtype=float)[j][np.newaxis, :]
             x_init.add(name, guess, interpolation=InterpolationType.EACH_FRAME, phase=i)
 
         q_bounds = model.bounds_from_ranges("q")
@@ -481,20 +528,21 @@ def prepare_ocp(
         qdot_bounds.min[0][0] = qdot_bounds.max[0][0] = 0
         x_bounds.add(key="q", bounds=q_bounds, phase=i)
         x_bounds.add(key="qdot", bounds=qdot_bounds, phase=i)
-        x_init.add(key="q", initial_guess=target[np.newaxis, :], interpolation=InterpolationType.EACH_FRAME, phase=i)
-        x_init.add(
-            key="qdot",
-            initial_guess=np.gradient(target, final_time / n_shooting)[np.newaxis, :],
-            interpolation=InterpolationType.EACH_FRAME,
-            phase=i,
-        )
+        if initial_states is None:
+            q_guess = target[np.newaxis, :]
+            qdot_guess = np.gradient(target, final_time / n_shooting)[np.newaxis, :]
+        else:
+            simulated = np.asarray(initial_states[i], dtype=float)
+            q_guess, qdot_guess = simulated[2][np.newaxis, :], simulated[3][np.newaxis, :]
+        x_init.add(key="q", initial_guess=q_guess, interpolation=InterpolationType.EACH_FRAME, phase=i)
+        x_init.add(key="qdot", initial_guess=qdot_guess, interpolation=InterpolationType.EACH_FRAME, phase=i)
 
         # --- The pulse width is the one that was applied, so only the parameters are identified --- #
         key = "last_pulse_width_" + MUSCLE_NAME
         control = np.array([[phase["pulse_width"]] * n_shooting])
         u_init.add(key=key, initial_guess=control, interpolation=InterpolationType.EACH_FRAME, phase=i)
         u_bounds.add(key, min_bound=control, max_bound=control, interpolation=InterpolationType.EACH_FRAME, phase=i)
-        u_scaling.add(key=key, scaling=[PULSE_WIDTH_SCALING], phase=i)
+        # No u_scaling: inert for the solve, but it makes nlp.dynamics_func expect the control in graph units
 
         objective_functions.add(
             ObjectiveFcn.Lagrange.MINIMIZE_STATE,
@@ -598,7 +646,17 @@ def predict(subject, phases, parameters, passive_method, max_iter=300):
 
 # ---- Running it ---- #
 def identify(
-    subject, phases, method, passive_method, plot=True, save=True, debug=True, show_debug=None, max_iter=1000, extra=None
+    subject,
+    phases,
+    method,
+    passive_method,
+    plot=True,
+    save=True,
+    debug=True,
+    show_debug=None,
+    max_iter=1000,
+    extra=None,
+    fixed_parameters=None,
 ):
     """
     Identify the FES model of one subject on the flexion phases given to it.
@@ -615,6 +673,8 @@ def identify(
         The stored passive torque identification to take the articular torque from
     show_debug: bool
         If the debug figures should also be opened on screen. Defaults to `plot`, see force_ocp.identify.
+    fixed_parameters: dict
+        Overrides FIXED_AT_LITERATURE, which is applied otherwise.
     """
     debug_plots.output_for(method, subject, debug=debug, show=plot if show_debug is None else show_debug)
 
@@ -623,8 +683,11 @@ def identify(
         print(f"P{subject}: no identified passive torque ({passive_path.name}), skipping.")
         return
 
+    fixed = {**FIXED_AT_LITERATURE, **(fixed_parameters or {})}
     model_path = str(COMPARISON_ROOT / "model" / f"p{subject}_scaling_scaled.bioMod")
-    ocp, targets, final_times = prepare_ocp(model_path, phases, passive_torque, formulation=formulation)
+    ocp, targets, final_times = prepare_ocp(
+        model_path, phases, passive_torque, formulation=formulation, fixed_parameters=fixed
+    )
 
     # --- Debug, pre ocp: the target the cost function actually holds, read back from the built ocp --- #
     if debug:
@@ -699,6 +762,7 @@ def identify(
             phase_lengths=[len(target) for target in targets],
             extra={
                 **(extra if extra else {}),
+                "fixed_parameters": fixed,
                 "n_movements": len(phases),
                 "frequency": [phase["frequency"] for phase in phases],
                 "pulse_width": [phase["pulse_width"] for phase in phases],

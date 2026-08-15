@@ -258,15 +258,20 @@ def summary_table(method: str) -> str:
     if not results:
         return f"No result found for method '{method}' in {RESULTS_ROOT / method}"
 
-    first = next(iter(results.values()))
-    parameter_names = list(first["parameters"])
-    unit = first["unit"]
+    # The union of every subject's parameter names, as one subject may carry extra ones (ex: the passive stop)
+    parameter_names = []
+    for result in results.values():
+        parameter_names += [name for name in result["parameters"] if name not in parameter_names]
+    unit = next(iter(results.values()))["unit"]
     header = f"{'subject':>8} {'rmse (' + unit + ')':>12} {'conv':>5}  " + "  ".join(
         f"{name:>10}" for name in parameter_names
     )
     lines = [header, "-" * len(header)]
     for subject, result in results.items():
-        values = "  ".join(f"{result['parameters'][name]:>10.4g}" for name in parameter_names)
+        values = "  ".join(
+            f"{result['parameters'][name]:>10.4g}" if name in result["parameters"] else f"{'-':>10}"
+            for name in parameter_names
+        )
         lines.append(
             f"{subject:>8} {result['rmse']:>12.4g} {str(result['converged']):>5}  {values}"
             + (f"   at bound: {result['parameters_at_bound']}" if result["parameters_at_bound"] else "")

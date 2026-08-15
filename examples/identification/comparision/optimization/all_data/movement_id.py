@@ -23,6 +23,7 @@ def main(
     debug=True,
     show_debug=False,
     max_iter=1000,
+    method=METHOD,
 ):
     """
     Parameters
@@ -42,7 +43,7 @@ def main(
     for i in subjects:
         subject = f"{int(i):02d}"
         # Before collecting, because the extraction figure is drawn while the phases are being read
-        debug_plots.output_for(METHOD, subject, debug=debug, show=show_debug)
+        debug_plots.output_for(method, subject, debug=debug, show=show_debug)
 
         phases = movement_ocp.collect_movement_phases(subject, frequencies=frequencies, debug=debug)
         if not phases:
@@ -52,7 +53,7 @@ def main(
         movement_ocp.identify(
             subject=subject,
             phases=phases,
-            method=METHOD,
+            method=method,
             passive_method=passive_method,
             plot=plot,
             save=save,
