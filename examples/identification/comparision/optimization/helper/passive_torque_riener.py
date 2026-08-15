@@ -133,10 +133,7 @@ class RienerPassiveTorque:
 
     def default_parameter_settings(self, max_elbow_position: float) -> dict:
         """
-        The initial guess, bounds, scaling and setter of every parameter.
-
-        The flexion stop is identified as the torque it reaches at the subject's anatomical limit and how
-        steeply it gets there, rather than as the raw a3 and a4.
+        The initial guess, bounds, scaling and setter of every parameter, in the plain Riener form.
 
         Parameters
         ----------
@@ -147,20 +144,8 @@ class RienerPassiveTorque:
         return {
             "a1": {"initial_guess": 1.0, "min_bound": -5.0, "max_bound": 4.0, "function": self.set_a1, "scaling": 1},
             "a2": {"initial_guess": -3.0, "min_bound": -15.0, "max_bound": 0.0, "function": self.set_a2, "scaling": 1},
-            "stop_torque": {
-                "initial_guess": 8.0,
-                "min_bound": 0.5,
-                "max_bound": 25.0,
-                "function": self.set_stop_torque,
-                "scaling": 10.0,
-            },
-            "stop_rate": {
-                "initial_guess": 4.0,
-                "min_bound": 1.0,
-                "max_bound": 8.0,
-                "function": self.set_stop_rate,
-                "scaling": 1,
-            },
+            "a3": {"initial_guess": -2.0, "min_bound": -25.0, "max_bound": 4.0, "function": self.set_a3, "scaling": 1},
+            "a4": {"initial_guess": 3.0, "min_bound": 0.0, "max_bound": 15.0, "function": self.set_a4, "scaling": 1},
             "a5": {"initial_guess": 0.0, "min_bound": -5.0, "max_bound": 5.0, "function": self.set_a5, "scaling": 1},
             "b": {"initial_guess": 0.1, "min_bound": 0.0, "max_bound": 5.0, "function": self.set_b, "scaling": 1},
         }

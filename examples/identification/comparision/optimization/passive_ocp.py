@@ -48,7 +48,7 @@ from helper.passive_torque_riener import RienerPassiveTorque
 # - "riener" is the Riener and Edrich form of helper/passive_torque_riener.py
 FORMULATIONS = {
     "double_exponential": (PassiveTorque, ["k1", "k2", "k3", "k4", "theta_max", "theta_min"]),
-    "riener": (RienerPassiveTorque, ["a1", "a2", "stop_torque", "stop_rate", "a5", "b"]),
+    "riener": (RienerPassiveTorque, ["a1", "a2", "a3", "a4", "a5", "b"]),
 }
 
 MAX_PHASE_DURATION = 3.5

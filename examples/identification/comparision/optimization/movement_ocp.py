@@ -70,19 +70,10 @@ IDENTIFIED_PARAMETERS = {
 FIXED_AT_LITERATURE = {name: NOMINAL[name] for name in ("pd0", "pdt", "tau2")}
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
-# Riener: the flexion stop is the same two degrees of freedom either way, but the parametrisation has to match
-# the passive identification. Anchored on the anatomical limit it sits at a3 ~ -20, which a3/a4 cannot hold
-# (widening the a3 floor to -10 already breaks the step computation); stop_torque/stop_rate is scaled for it.
+# The flexion side exponential exp(a3 + a4 * theta), in the same parameters passive_ocp identifies
 PASSIVE_FLEXION_STOP = {
     "riener": ["a3", "a4"],
-    "riener_anchored": ["stop_torque", "stop_rate"],
     "double_exponential": ["k3", "k4", "theta_max"],
-}
-# a3 keeps the bounds of the passive identification: widening its floor only moves the bound it sits on, and
-# breaks the step computation on the way (-10 fails, -25 fails harder)
-FLEXION_STOP_SETTINGS = {
-    "a3": {"min_bound": -5.0, "max_bound": 4.0, "scaling": 1},
-    "a4": {"min_bound": 0.0, "max_bound": 15.0, "scaling": 1},
 }
 PASSIVE_CLIP_MARGIN = 0.15
 TRUNCATED_TRAIN_FRACTION = 0.5
@@ -346,12 +337,6 @@ def _passive_setter(name):
     return setter
 
 
-def flexion_stop_key(passive_torque, formulation):
-    """Which flexion stop parameters to identify, following what the passive identification produced."""
-    anchored = formulation == "riener" and getattr(passive_torque, "flexion_limit", None) is not None
-    return "riener_anchored" if anchored else formulation
-
-
 def set_default_values(
     passive_torque, formulation, max_elbow_position, min_pulse_width=None, include_passive_stop=True
 ):
@@ -392,8 +377,8 @@ def set_default_values(
         return settings
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
-    for name in PASSIVE_FLEXION_STOP[flexion_stop_key(passive_torque, formulation)]:
-        setting = dict(FLEXION_STOP_SETTINGS.get(name) or passive_settings[name])
+    for name in PASSIVE_FLEXION_STOP[formulation]:
+        setting = dict(passive_settings[name])
         # Start from what the relaxations found rather than from the generic guess
         found = getattr(passive_torque, name, None)
         if found is None:
@@ -788,9 +773,7 @@ def identify(
                 "passive_method": passive_method,
                 "passive_formulation": formulation,
                 "passive_flexion_stop": {
-                    name: parameters[name]
-                    for name in PASSIVE_FLEXION_STOP[flexion_stop_key(passive_torque, formulation)]
-                    if name in parameters
+                    name: parameters[name] for name in PASSIVE_FLEXION_STOP[formulation] if name in parameters
                 },
                 # Provenance: what the identification actually started from, so a mismatched passive input
                 # cannot go unnoticed again
