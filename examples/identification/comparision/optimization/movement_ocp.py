@@ -70,12 +70,18 @@ IDENTIFIED_PARAMETERS = {
 FIXED_AT_LITERATURE = {name: NOMINAL[name] for name in ("pd0", "pdt", "tau2")}
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
+# Riener: the flexion stop is the same two degrees of freedom either way, but the parametrisation has to match
+# the passive identification. Anchored on the anatomical limit it sits at a3 ~ -20, which a3/a4 cannot hold
+# (widening the a3 floor to -10 already breaks the step computation); stop_torque/stop_rate is scaled for it.
 PASSIVE_FLEXION_STOP = {
     "riener": ["a3", "a4"],
+    "riener_anchored": ["stop_torque", "stop_rate"],
     "double_exponential": ["k3", "k4", "theta_max"],
 }
+# a3 keeps the bounds of the passive identification: widening its floor only moves the bound it sits on, and
+# breaks the step computation on the way (-10 fails, -25 fails harder)
 FLEXION_STOP_SETTINGS = {
-    "a3": {"min_bound": -10.0, "max_bound": 4.0, "scaling": 1},
+    "a3": {"min_bound": -5.0, "max_bound": 4.0, "scaling": 1},
     "a4": {"min_bound": 0.0, "max_bound": 15.0, "scaling": 1},
 }
 PASSIVE_CLIP_MARGIN = 0.15
@@ -88,6 +94,9 @@ MUSCLE_STATE_GUESS = (0.3, 25.0)
 # Ceiling of the F state (N). The cocofest default of 248 N sits below the 458 N measured on this cohort.
 FMAX = 1000.0
 PULSE_WIDTH_SCALING = 1e-4
+# Threads of the ocp. Above 1 the reduction order depends on the machine, and on a problem with basins this
+# close together the last bits of the gradient decide which one the solve ends in.
+N_THREADS = 20
 
 
 # ---- Reading the experimental flexions ---- #
@@ -337,6 +346,12 @@ def _passive_setter(name):
     return setter
 
 
+def flexion_stop_key(passive_torque, formulation):
+    """Which flexion stop parameters to identify, following what the passive identification produced."""
+    anchored = formulation == "riener" and getattr(passive_torque, "flexion_limit", None) is not None
+    return "riener_anchored" if anchored else formulation
+
+
 def set_default_values(
     passive_torque, formulation, max_elbow_position, min_pulse_width=None, include_passive_stop=True
 ):
@@ -377,7 +392,7 @@ def set_default_values(
         return settings
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
-    for name in PASSIVE_FLEXION_STOP[formulation]:
+    for name in PASSIVE_FLEXION_STOP[flexion_stop_key(passive_torque, formulation)]:
         setting = dict(FLEXION_STOP_SETTINGS.get(name) or passive_settings[name])
         # Start from what the relaxations found rather than from the generic guess
         found = getattr(passive_torque, name, None)
@@ -583,7 +598,7 @@ def prepare_ocp(
         phase_transitions=phase_transitions,
         control_type=ControlType.CONSTANT,
         use_sx=use_sx,
-        n_threads=20,
+        n_threads=N_THREADS,
     )
     return ocp, targets, final_times
 
@@ -773,8 +788,14 @@ def identify(
                 "passive_method": passive_method,
                 "passive_formulation": formulation,
                 "passive_flexion_stop": {
-                    name: parameters[name] for name in PASSIVE_FLEXION_STOP[formulation] if name in parameters
+                    name: parameters[name]
+                    for name in PASSIVE_FLEXION_STOP[flexion_stop_key(passive_torque, formulation)]
+                    if name in parameters
                 },
+                # Provenance: what the identification actually started from, so a mismatched passive input
+                # cannot go unnoticed again
+                "passive_parameters": passive_torque.identifiable_parameters,
+                "passive_flexion_limit": getattr(passive_torque, "flexion_limit", None),
             },
         )
 
