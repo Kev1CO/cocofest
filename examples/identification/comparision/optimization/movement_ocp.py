@@ -50,19 +50,24 @@ ACTIVATE_PASSIVE_FORCE_RELATIONSHIP = False
 NON_WEIGHTED_FREQUENCIES = [20, 33, 50]
 SEEDS_PULSE_WIDTH_PATH = COMPARISON_ROOT / "processing" / "helper" / "seeds_pulse_width.pkl"
 
-# Identified parameters of the Ding 2007 model, as (initial guess, min bound, max bound, scaling).
-# Lower bounds at 0.2x the guess: near-zero time constants send the dynamics into silent NaNs.
-IDENTIFIED_PARAMETERS = {
-    "tau1_rest": (0.11, 0.022, 0.5, 0.05),
-    "tau2": (0.14, 0.028, 0.5, 0.05),
-    "km_rest": (0.11, 0.005, 1, 0.1),
-    "a_scale": (900, 180, 10000, 1000.0),
-    "pd0": (1.1e-4, 2.2e-5, 6e-4, 1e-4),
-    "pdt": (2.0e-4, 4e-5, 6e-4, 1e-4),
+NOMINAL = {
+    "tau1_rest": 0.060601,
+    "tau2": 0.001,
+    "km_rest": 0.137,
+    "a_scale": 4920.0,
+    "pd0": 1.31405e-4,
+    "pdt": 1.94138e-4,
 }
 
-# Held at their literature value: correlated above 0.95 with a_scale, so only one of the block is identifiable
-FIXED_AT_LITERATURE = {"pd0": 1.31405e-4, "pdt": 1.94138e-4}
+FACTOR_BOUNDS = (0.2, 5.0)
+FACTOR_OVERRIDES = {"a_scale": (0.03, 2.0)}
+
+IDENTIFIED_PARAMETERS = {
+    name: (value, FACTOR_OVERRIDES.get(name, FACTOR_BOUNDS)[0] * value, FACTOR_OVERRIDES.get(name, FACTOR_BOUNDS)[1] * value, value)
+    for name, value in NOMINAL.items()
+}
+
+FIXED_AT_LITERATURE = {name: NOMINAL[name] for name in ("pd0", "pdt", "tau2")}
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
 PASSIVE_FLEXION_STOP = {
@@ -70,7 +75,7 @@ PASSIVE_FLEXION_STOP = {
     "double_exponential": ["k3", "k4", "theta_max"],
 }
 FLEXION_STOP_SETTINGS = {
-    "a3": {"min_bound": -5.0, "max_bound": 4.0, "scaling": 1},
+    "a3": {"min_bound": -10.0, "max_bound": 4.0, "scaling": 1},
     "a4": {"min_bound": 0.0, "max_bound": 15.0, "scaling": 1},
 }
 PASSIVE_CLIP_MARGIN = 0.15
