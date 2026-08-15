@@ -777,7 +777,11 @@ def identify(
                 },
                 # Provenance: what the identification actually started from, so a mismatched passive input
                 # cannot go unnoticed again
-                "passive_parameters": passive_torque.identifiable_parameters,
+                "passive_parameters": {
+                    key: float(value)
+                    for key, value in passive_torque.identifiable_parameters.items()
+                    if isinstance(value, (int, float))
+                },
                 "passive_flexion_limit": getattr(passive_torque, "flexion_limit", None),
             },
         )
