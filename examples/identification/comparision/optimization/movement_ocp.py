@@ -55,22 +55,24 @@ SEEDS_PULSE_WIDTH_PATH = COMPARISON_ROOT / "processing" / "helper" / "seeds_puls
 IDENTIFIED_PARAMETERS = {
     "tau1_rest": (0.11, 0.022, 0.5, 0.05),
     "tau2": (0.14, 0.028, 0.5, 0.05),
-    "km_rest": (0.11, 0.022, 1, 0.1),
+    "km_rest": (0.11, 0.005, 1, 0.1),
     "a_scale": (900, 180, 10000, 1000.0),
     "pd0": (1.1e-4, 2.2e-5, 6e-4, 1e-4),
     "pdt": (2.0e-4, 4e-5, 6e-4, 1e-4),
 }
 
 # Held at their literature value: correlated above 0.95 with a_scale, so only one of the block is identifiable
-FIXED_AT_LITERATURE = {"pd0": 1.31405e-4, "pdt": 1.94138e-4, "tau2": 0.06}
+FIXED_AT_LITERATURE = {"pd0": 1.31405e-4, "pdt": 1.94138e-4}
 
 PASSIVE_CLASSES = {"double_exponential": PassiveTorque, "riener": RienerPassiveTorque}
 PASSIVE_FLEXION_STOP = {
-    "riener": ["stop_torque", "stop_rate"],
+    "riener": ["a3", "a4"],
     "double_exponential": ["k3", "k4", "theta_max"],
 }
-# Widened: the shipped range saturated on 6 subjects for stop_torque and 8 for stop_rate
-PASSIVE_STOP_BOUNDS = {"stop_torque": (0.5, 60.0), "stop_rate": (0.5, 15.0)}
+FLEXION_STOP_SETTINGS = {
+    "a3": {"min_bound": -5.0, "max_bound": 4.0, "scaling": 1},
+    "a4": {"min_bound": 0.0, "max_bound": 15.0, "scaling": 1},
+}
 PASSIVE_CLIP_MARGIN = 0.15
 TRUNCATED_TRAIN_FRACTION = 0.5
 PD0_MARGIN = 0.95
@@ -371,17 +373,13 @@ def set_default_values(
 
     passive_settings = passive_torque.default_parameter_settings(max_elbow_position=max_elbow_position)
     for name in PASSIVE_FLEXION_STOP[formulation]:
-        setting = dict(passive_settings[name])
+        setting = dict(FLEXION_STOP_SETTINGS.get(name) or passive_settings[name])
         # Start from what the relaxations found rather than from the generic guess
         found = getattr(passive_torque, name, None)
         if found is None:
             found = getattr(passive_torque, f"_{name}", None)
         if found is not None:
-            # Clipped: without an identified flexion limit, stop_torque comes back as exp(a3), far under its bound
             setting["initial_guess"] = float(np.clip(found, setting["min_bound"], setting["max_bound"]))
-        if name in PASSIVE_STOP_BOUNDS:
-            setting["min_bound"], setting["max_bound"] = PASSIVE_STOP_BOUNDS[name]
-            setting["initial_guess"] = float(np.clip(setting["initial_guess"], *PASSIVE_STOP_BOUNDS[name]))
         setting["function"] = _passive_setter(name)
         settings[name] = setting
 
@@ -714,7 +712,8 @@ def identify(
     time, q_identified = results.solution_at_nodes(sol, "q", [len(target) - 1 for target in targets])
     q_tracked = np.concatenate(targets)
     parameters = {key: float(value.squeeze()) for key, value in sol.decision_parameters().items()}
-    at_bound = results.parameters_at_bound(ocp, parameters)
+
+    at_bound = [name for name in results.parameters_at_bound(ocp, parameters) if name not in fixed]
 
     print(f"P{subject} RMSE: {np.rad2deg(results.rmse(q_tracked, q_identified)):.3f} deg ({len(phases)} movement(s))")
     for key, value in parameters.items():
