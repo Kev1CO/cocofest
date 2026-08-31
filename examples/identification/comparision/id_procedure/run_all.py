@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--subjects", type=int, nargs="+", default=list(range(1, 21)),
                         help="participants to run, 1 to 20 by default")
     parser.add_argument("--routes", nargs="+", default=list(route_table.NAMES),
-                        choices=list(route_table.NAMES), help="routes to run, all seven by default")
+                        choices=list(route_table.NAMES), help="routes to run, all three by default")
     parser.add_argument("--figures", action="store_true", help="redraw the figures alone")
     parser.add_argument("--check", type=int, metavar="SUBJECT",
                         help="run one participant through every route without writing anything")

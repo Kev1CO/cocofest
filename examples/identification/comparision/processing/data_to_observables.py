@@ -16,7 +16,7 @@ import pandas as pd
 COMPARISON_ROOT = Path(__file__).resolve().parent.parent
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-from helper.force_processing import C3dToForce  # noqa: E402
+from helper.force_processing import C3dToForce
 
 CALIBRATION_MATRIX_PATH = str(Path(__file__).resolve().parent / "helper" / "matrix.txt")
 OBSERVABLE_FOLDERS = {"sensor": COMPARISON_ROOT / "data" / "sensor", "torque": COMPARISON_ROOT / "data" / "torque"}
