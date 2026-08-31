@@ -1,0 +1,113 @@
+"""
+Second pass over the isometric c3d recordings, for the two observables data_to_muscle_force.py does not keep.
+
+    data/sensor/   the norm of the 3-axis force vector measured at the handle sensor, no biomechanical
+                   transport at all
+    data/torque/   the elbow torque that same handle load produces, i.e. the inverse dynamics result
+                   before it is divided by the biceps moment arm
+"""
+
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+COMPARISON_ROOT = Path(__file__).resolve().parent.parent
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from helper.force_processing import C3dToForce  # noqa: E402
+
+CALIBRATION_MATRIX_PATH = str(Path(__file__).resolve().parent / "helper" / "matrix.txt")
+OBSERVABLE_FOLDERS = {"sensor": COMPARISON_ROOT / "data" / "sensor", "torque": COMPARISON_ROOT / "data" / "torque"}
+ELBOW_ANGLE = 90
+MUSCLE_NAME = "BIClong"
+
+
+def observables_of(converter) -> dict:
+    """
+    The sensor force norm and the elbow torque of every train of one recording.
+    """
+    converter.get_data_at_handle()
+    converter.select_muscle_and_dof()
+    handle = converter.handle_dictionary
+
+    sensor, torque, times, decayed = [], [], [], []
+    for i in range(len(handle["x"])):
+        force = np.array([handle["x"][i], handle["y"][i], handle["z"][i]])
+        moment = np.array([handle["mx"][i], handle["my"][i], handle["mz"][i]])
+        converter.get_muscle_force(
+            local_data=np.concatenate(
+                (converter.local_sensor_to_local_hand(force), converter.local_sensor_to_local_hand(moment))
+            )
+        )
+
+        muscle = np.array(converter.muscle_force_vector) - converter.muscle_force_vector[0]
+        muscle = np.maximum(muscle, 0)
+        end = converter.force_production_end(muscle)
+        decayed.append(bool(end < muscle.size))
+
+        norm = np.linalg.norm(force, axis=0)
+        elbow = np.maximum(np.array(converter.elbow_torque_vector) - converter.elbow_torque_vector[0], 0)
+
+        for observable, series in (("sensor", norm), ("torque", elbow)):
+            cut = np.asarray(series, dtype=float)[:end].copy()
+            if cut.size:
+                cut[-1] = 0.0
+            (sensor if observable == "sensor" else torque).append(cut)
+        times.append(np.asarray(handle["time"][i])[:end])
+
+    return {"sensor": sensor, "torque": torque, "time": times, "force_decayed": decayed}
+
+
+def main(subjects=range(1, 21), overwrite=False):
+    participants = pd.read_excel(COMPARISON_ROOT / "data" / "exp" / "data_participants.xlsx")
+
+    for i in subjects:
+        subject = f"P{int(i):02d}"
+        exp_folder = COMPARISON_ROOT / "data" / "exp" / subject
+        for folder in OBSERVABLE_FOLDERS.values():
+            (folder / subject).mkdir(parents=True, exist_ok=True)
+
+        handle_distance = float(participants.loc[participants["participant"] == int(i), "handle_elbow_dist"].values[0])
+
+        for path in sorted(exp_folder.glob("*force*.c3d")):
+            written = [OBSERVABLE_FOLDERS[name] / subject / f"{path.stem}.pkl" for name in OBSERVABLE_FOLDERS]
+            if not overwrite and all(target.exists() for target in written):
+                print(f"kept: {subject}/{path.stem}.pkl")
+                continue
+
+            converter = C3dToForce(
+                c3d_path=str(path),
+                calibration_matrix_path=CALIBRATION_MATRIX_PATH,
+                saving_pickle_path=str(written[0]),
+                frequency_stimulation=int(path.name[10:12]),
+                rest_time=1,
+                model_path=str(COMPARISON_ROOT / "model" / f"p{int(i):02d}_scaling_scaled.bioMod"),
+                elbow_angle=ELBOW_ANGLE,
+                muscle_name=MUSCLE_NAME,
+                transfer_force=True,
+                handle_distance=handle_distance / 100.0,  # the sheet reports centimetres
+            )
+            extracted = observables_of(converter)
+
+            for name, folder in OBSERVABLE_FOLDERS.items():
+                converter.save_in_pkl(
+                    {
+                        "force": extracted[name],
+                        "time": extracted["time"],
+                        "frequency": converter.frequency_stimulation,
+                        "pulse_width": converter.pulse_width,
+                        "stim_time": converter.handle_dictionary["stim_time"],
+                        "muscle_name": MUSCLE_NAME,
+                        "force_decayed": extracted["force_decayed"],
+                        "observable": name,
+                        "unit": "N" if name == "sensor" else "Nm",
+                    },
+                    str(folder / subject / f"{path.stem}.pkl"),
+                )
+            print(f"saved: {subject}/{path.stem}.pkl")
+
+
+if __name__ == "__main__":
+    main()

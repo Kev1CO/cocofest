@@ -460,6 +460,31 @@ class C3dToForce:
         muscle_index = self.muscle_name_index[self.muscle_name]
         self.muscle_moment_arm = self.model.musclesLengthJacobian(self.Q).to_array()[muscle_index][0]
 
+    def elbow_in_application_frame(self) -> float:
+        """
+        Where the elbow axis sits on the y axis of the frame `pointOfApplication` is read in (m).
+
+        addInSegmentReferenceFrame does not place the point relative to the joint centre: a unit force
+        applied at (0, 0, 0) of r_ulna_radius_hand already produces a torque about the elbow, which is
+        mechanically impossible if that were the axis. The offset is where that torque vanishes. It is
+        linear in y, so two probes settle it, and the handle then goes `handle_distance` further down the
+        forearm from there rather than from the frame's own origin.
+        """
+        def torque(y):
+            external_force = self.model.externalForceSet()
+            external_force.addInSegmentReferenceFrame(
+                segmentName="r_ulna_radius_hand",
+                vector=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+                pointOfApplication=np.array([0.0, y, 0.0]),
+            )
+            return self.model.InverseDynamics(self.Q, self.Qdot, self.Qddot, external_force).to_array()[0]
+
+        rest = self.model.InverseDynamics(
+            self.Q, self.Qdot, self.Qddot, self.model.externalForceSet()
+        ).to_array()[0]
+        at_zero, at_one = torque(0.0) - rest, torque(1.0) - rest
+        return float(at_zero / (at_zero - at_one))
+
     def get_muscle_force(self, local_data):
         """
         This function is used to compute the muscle force from the local data.
