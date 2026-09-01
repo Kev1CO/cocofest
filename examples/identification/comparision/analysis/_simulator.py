@@ -95,7 +95,7 @@ def simulate_route(route, subject: str, parameters: dict, frequency, pulse_width
     settled = steps.parameter_table(parameters["tau1_rest"])
     step = steps.solve(route, subject, one, (), ding_model.DingModelArticle, settled,
                        constants={name: float(value) for name, value in parameters.items() if name in FREE},
-                       max_iter=5000)
+                       max_iter=steps.MAX_ITER)
     return np.asarray(step["times"][0], float), steps.in_unit(route, step["identified"][0])
 
 

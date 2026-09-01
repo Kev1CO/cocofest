@@ -4,10 +4,13 @@ Whether the identification survives having part of its training set taken away.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 
 import _campaign
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -94,36 +97,126 @@ def against_study(summary: pd.DataFrame) -> pd.DataFrame:
     return table
 
 
-def figure(detail: pd.DataFrame, name=None) -> None:
-    """The held-out error fold by fold, and the parameter spread the folds produced."""
-    usable = detail[detail["failed"] == ""]
-    if usable.empty or "heldout_peak_error_pct" not in usable:
+SCHEMES = ("train", "intensity", "frequency")
+
+
+def held_out_label(scheme: str, held_out) -> str:
+    """What a fold took away, named by the condition rather than by its index in the loop."""
+    pairs = re.findall(r"(\d+)Hz (\d+)us", str(held_out))
+    if not pairs:
+        return str(held_out)
+    if scheme == "intensity":
+        return f"{pairs[0][1]} us"
+    if scheme == "frequency":
+        return f"{pairs[0][0]} Hz"
+    return str(held_out)
+
+
+def fold_labels(scheme: str, block: pd.DataFrame) -> dict:
+    """What each fold is called on the axis: the condition it withdrew, or its rank in the train scheme."""
+    if scheme == "train":
+        return {value: f"fold {int(value) + 1}" for value in sorted(block["fold"].unique())}
+    return {value: held_out_label(scheme, value) for value in block["held_out"]}
+
+
+def folds_on_disk(scheme: str, detail=None) -> pd.DataFrame:
+    """The folds of one scheme: the ones this run produced, or the ones an earlier one left."""
+    if detail is not None and not detail.empty and (detail["scheme"] == scheme).any():
+        return detail[detail["scheme"] == scheme]
+    stored = _shared.stored(ANALYSIS, f"all_folds_{scheme}")
+    return stored if stored is not None else pd.DataFrame()
+
+
+def figure(detail=None, name="cross_validation") -> None:
+    """
+    The held-out error of every scheme, the three of them side by side.
+
+    The abscissa is the condition that was taken away, not the index of the fold: dropping 250 us and
+    dropping 400 us are not the same experiment, and a fold number hides which one was run.
+    """
+    blocks = {scheme: folds_on_disk(scheme, detail) for scheme in SCHEMES}
+    blocks = {scheme: block[block["failed"] == ""] for scheme, block in blocks.items()
+              if not block.empty and "heldout_peak_error_pct" in block}
+    if not blocks:
         return
-    scheme = usable["scheme"].iloc[0]
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.4))
-    axis = axes[0]
-    for fold, group in usable.groupby("fold"):
-        label = group["held_out"].iloc[0]
-        axis.scatter([fold] * len(group), group["heldout_peak_error_pct"], s=12, alpha=0.6,
-                     edgecolor="none", label=label if fold < 8 else None)
-    axis.set_xlabel("fold", fontsize=8)
-    axis.set_ylabel("held-out peak %model error", fontsize=8)
-    axis.legend(fontsize=5.5, ncol=2)
-    axis.tick_params(labelsize=7)
+    fig, axes = plt.subplots(1, len(blocks), figsize=(5.6 * len(blocks), 4.8), squeeze=False)
+    for axis, (scheme, block) in zip(axes[0], blocks.items()):
+        routes = _figures.ordered(list(dict.fromkeys(block["route"])))
+        named = fold_labels(scheme, block)
+        told = block["fold" if scheme == "train" else "held_out"].map(named)
+        labels = list(dict.fromkeys(told))
+        for index, route in enumerate(routes):
+            offset = (index - (len(routes) - 1) / 2) * 0.22
+            for position, label in enumerate(labels):
+                values = block.loc[(block["route"] == route) & (told == label),
+                                   "heldout_peak_error_pct"].to_numpy(float)
+                if not values.size:
+                    continue
+                axis.scatter(position + offset + _figures.jitter(len(values), 0.05), values, s=11,
+                             alpha=0.55, edgecolor="none", color=_figures.colour(route))
+                _figures.median_bar(axis, values, position + offset, width=0.09,
+                                    colour_of=_figures.colour(route))
+        axis.set_xticks(range(len(labels)))
+        axis.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
+        axis.set_xlabel("condition held out" if scheme != "train" else "fold", fontsize=8)
+        axis.set_ylabel("held-out peak %model error", fontsize=8)
+        axis.set_title(f"{scheme} scheme", fontsize=10, fontweight="bold")
+        axis.tick_params(axis="y", labelsize=7)
+        axis.grid(alpha=0.3, axis="y")
+        _figures.count(axis, f"{block['subject'].nunique()} participants, {len(block)} folds")
+        handles = [plt.Line2D([], [], ls="none", marker="o", color=_figures.colour(route),
+                              label=_figures.label(route)) for route in routes]
+        axis.legend(handles=handles, fontsize=6)
 
-    axis = axes[1]
-    present = [name_of for name_of in _shared.PARAMETERS if name_of in usable]
-    _shared.boxplot(axis, [usable.groupby("subject")[name_of].apply(
-        lambda values: 100 * values.std() / values.mean() if values.mean() else np.nan).dropna()
-        for name_of in present], present, showfliers=False)
-    axis.set_ylabel("between-fold CV of the identified value (%)", fontsize=8)
-    axis.tick_params(axis="x", labelrotation=90, labelsize=7)
-    axis.tick_params(axis="y", labelsize=7)
+    fig.suptitle("Does the identification survive a different split", fontsize=13, fontweight="bold")
+    _figures.caption(fig, "heldout_* is the fold that was taken away; testing_* is the study's own fixed "
+                          "testing set. Both sit on the same row of the csv and are not the same number.\n"
+                          "The reference column, 400 us, is never held out: a fold without it would not be "
+                          "the same procedure.")
+    fig.tight_layout(rect=(0, 0.06, 1, 0.94))
+    _shared.save_figure(fig, ANALYSIS, name)
 
-    fig.suptitle(f"cross validation, {scheme} scheme", fontsize=9)
-    fig.tight_layout()
-    _shared.save_figure(fig, ANALYSIS, name or f"kfold_{scheme}")
+
+def figure_optimism(name="optimism") -> None:
+    """How much the study's own single split flatters the result, scheme by scheme."""
+    frames = []
+    for scheme in SCHEMES:
+        stored = _shared.stored(ANALYSIS, f"against_study_{scheme}")
+        if stored is not None:
+            frames.append(stored)
+    if not frames:
+        return
+    table = pd.concat(frames, ignore_index=True)
+
+    fig, axis = plt.subplots(figsize=(4.0 + 1.4 * len(table), 4.6))
+    for position, row in enumerate(table.itertuples()):
+        tint = _figures.colour(row.route)
+        axis.plot([position - 0.16, position + 0.16],
+                  [row.study_peak_error_pct, row.crossval_peak_error_pct], color=tint, lw=3.0)
+        axis.scatter([position - 0.16, position + 0.16],
+                     [row.study_peak_error_pct, row.crossval_peak_error_pct], s=30, color=tint, zorder=3)
+        axis.text(position - 0.2, row.study_peak_error_pct, f"{row.study_peak_error_pct:.1f}", ha="right",
+                  va="center", fontsize=7)
+        axis.text(position + 0.2, row.crossval_peak_error_pct, f"{row.crossval_peak_error_pct:.1f}",
+                  ha="left", va="center", fontsize=7)
+        axis.text(position, 0.5 * (row.study_peak_error_pct + row.crossval_peak_error_pct),
+                  f"{row.optimism_pct:+.1f}", ha="center", va="bottom", fontsize=8, fontweight="bold")
+    axis.set_xticks(range(len(table)))
+    axis.set_xticklabels([f"{_figures.label(row.route)}\n{row.scheme}" for row in table.itertuples()],
+                         fontsize=7)
+    axis.set_ylabel("peak %model error", fontsize=9)
+    axis.grid(alpha=0.3, axis="y")
+    _figures.note(axis, "left point: the study's own split.  right point: cross validated.\n"
+                        "the number between them is optimism_pct", size=6)
+
+    fig.suptitle("What the single split of the study is worth", fontsize=12, fontweight="bold")
+    _figures.caption(fig, "A positive optimism says the headline result is better than what a new "
+                          "participant would get.\n"
+                          "If it differs between routes, the paired comparison of group D is biased "
+                          "towards the more optimistic route, which is why this figure exists.")
+    fig.tight_layout(rect=(0, 0.07, 1, 0.94))
+    _shared.save_figure(fig, ANALYSIS, name)
 
 
 def main():
@@ -155,6 +248,7 @@ def main():
     _shared.write(summary, ANALYSIS, f"summary_{tag}")
     _shared.write(against_study(summary), ANALYSIS, f"against_study_{tag}")
     figure(detail)
+    figure_optimism()
 
 
 if __name__ == "__main__":

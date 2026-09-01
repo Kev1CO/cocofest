@@ -7,10 +7,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
 from matplotlib import ticker
+
+import ding_model
+import protocol
+import steps
 
 ANALYSIS = "parameter_bounds"
 
@@ -98,59 +103,148 @@ def shortlist(bound_table: pd.DataFrame) -> pd.DataFrame:
                    "no_dispersion_left", "median"]]
 
 
+# a_scale and A start from the measured peak, so they have no single initial value to draw
+GUESSED = ("km_rest", "tau1_rest", "tau2", "pd0", "pdt")
+
+
 def figure(routes, name="parameter_bounds") -> None:
-    """Every parameter of every route, on a log axis, with its bounds drawn as a band."""
-    tables = {route: _shared.cohort(route) for route in routes}
-    routes = [route for route in routes if not tables[route].empty]
-    if not routes:
+    """
+    Every parameter of every route against its own bounds, on a log axis, one point per participant.
+
+    A parameter every participant is pinned against is drawn as a flat line of hollow markers. That is the
+    result and the panel says so, rather than leaving it to look like a drawing fault.
+    """
+    order = [route for route in _figures.ordered(routes) if not _shared.cohort(route).empty]
+    if not order:
         return
+    tables = {route: _shared.cohort(route) for route in order}
+    counted = bounds(order)
 
-    fig, axes = plt.subplots(1, len(_shared.PARAMETERS), figsize=(3.0 * len(_shared.PARAMETERS), 4.4),
-                             squeeze=False)
-    for axis, name_of in zip(axes[0], _shared.PARAMETERS):
-        series, labels = [], []
-        for route in routes:
+    fig, axes = plt.subplots(2, 3, figsize=(15.5, 8.6))
+    for axis, parameter in zip(axes.ravel(), _shared.PARAMETERS):
+        told = []
+        for index, route in enumerate(order):
             table = tables[route]
-            if name_of in table:
-                series.append(table[name_of].astype(float).to_numpy())
-                labels.append(route.replace("_id", ""))
-        if not series:
-            continue
-        _shared.boxplot(axis, series, labels, showfliers=True, flierprops={"markersize": 2})
+            if parameter not in table:
+                continue
+            values = table[parameter].astype(float).to_numpy()
+            pinned = np.array([parameter in entry for entry in table["at_bound"]], dtype=bool)
+            axis.boxplot([values], positions=[index], widths=0.55, showfliers=False,
+                         medianprops=dict(color="black", linewidth=1.2))
+            _figures.points(axis, index, values, route, at_bound=pinned, size=16)
 
-        # a_scale is bounded per participant, so its floor is the lowest any route allowed, not a median
-        drawn = [np.concatenate(series)]
-        floors = [float(tables[route][f"{name_of}__min"].astype(float).min())
-                  for route in routes if f"{name_of}__min" in tables[route]]
-        if floors:
-            axis.axhline(min(floors), color="C3", lw=0.9, ls=":")
-            drawn.append([min(floors)])
-        ceilings = tables[routes[0]].get(f"{name_of}__max")
-        if ceilings is not None:
-            drawn.append([float(ceilings.astype(float).median())])
-            axis.axhline(drawn[-1][0], color="C3", lw=0.9, ls="--")
+            for column in (f"{parameter}__min", f"{parameter}__max"):
+                if column in table:
+                    edge = float(table[column].astype(float).median())
+                    if np.isfinite(edge) and edge > 0:
+                        axis.plot([index - 0.45, index + 0.45], [edge, edge], color=_figures.BOUND,
+                                  lw=3.0, alpha=0.55, solid_capstyle="butt", zorder=1)
+
+            row = counted[(counted["route"] == route) & (counted["parameter"] == parameter)]
+            if not row.empty:
+                entry = row.iloc[0]
+                told.append(f"{_figures.label(route)}: {int(entry['at_bound'])}/{int(entry['n'])} at a "
+                            f"bound ({int(entry['at_low'])} low, {int(entry['at_high'])} high), "
+                            f"CV {entry['cv_pct']:.0f} %"
+                            + ("  -> the box is a line because every participant is pinned there, which "
+                               "is the result" if entry["at_bound"] >= entry["n"] and entry["cv_pct"] < 1
+                               else ""))
+
+        if parameter in GUESSED:
+            axis.axhline(steps.IDENTIFIED_PARAMETERS[parameter][0], color=_figures.BOUND, lw=0.9, ls="--")
         axis.set_yscale("log")
-
-        # The decades enclosing what is drawn, so every panel ticks in whole decades and none carries an
-        # empty one; taken from the values rather than the autoscaled limits, whose margin costs a decade
-        values = np.concatenate([np.asarray(part, dtype=float).ravel() for part in drawn])
-        values = values[np.isfinite(values) & (values > 0)]
-        if values.size:
-            # A hair beyond the decade, or a bound landing exactly on one is drawn under the frame
-            axis.set_ylim(10.0 ** (np.floor(np.log10(values.min()) + 1e-9) - 0.05),
-                          10.0 ** (np.ceil(np.log10(values.max()) - 1e-9) + 0.05))
-        axis.yaxis.set_major_locator(ticker.LogLocator(base=10.0))
-        axis.yaxis.set_major_formatter(ticker.LogFormatterMathtext(base=10.0))
-        axis.yaxis.set_minor_locator(ticker.LogLocator(base=10.0, subs=tuple(range(2, 10))))
+        axis.set_title(parameter, fontsize=10, fontweight="bold")
+        _figures.route_ticks(axis, order)
+        axis.tick_params(axis="y", which="major", labelsize=7)
+        axis.tick_params(axis="y", which="minor", labelsize=5)
         axis.yaxis.set_minor_formatter(ticker.NullFormatter())
-        axis.set_title(name_of, fontsize=8)
-        axis.tick_params(axis="x", labelrotation=90, labelsize=7)
-        axis.tick_params(axis="y", which="major", labelsize=7, length=3.5)
-        axis.tick_params(axis="y", which="minor", length=2)
+        axis.grid(alpha=0.3, axis="y")
+        _figures.note(axis, "\n".join(told), size=5.5, x=0.02, y=-0.30, va="top")
 
-    fig.suptitle("identified parameters against their bounds "
-                 "(red: lower dotted, the lowest of the routes; upper dashed)", fontsize=9)
-    fig.tight_layout()
+    fig.suptitle("What the data resolves, and what the optimiser pushes against a bound",
+                 fontsize=13, fontweight="bold")
+    _figures.caption(fig, "Thick red: the bounds this route was given. Thin red dashed: the value the "
+                          "parameter started from. Hollow marker: the solver declared that value on a "
+                          "bound.\n"
+                          "at_bound is the solver's own word and is what counts; at_low and at_high count "
+                          "values within a thousandth of a bound and can differ from it.\n"
+                          "A parameter pinned on a candidate route and free on the reference is a point "
+                          "of infeasibility, not a nuance.")
+    fig.tight_layout(rect=(0, 0.10, 1, 0.94), h_pad=6.5)
+    _shared.save_figure(fig, ANALYSIS, name)
+
+
+def figure_a_refinement(detail: pd.DataFrame, name="a_refinement") -> None:
+    """What step 3 buys: how far the six A travel with the pulse width, and what eq. 3 makes of them."""
+    if detail.empty:
+        return
+    order = [route for route in _figures.ordered(list(dict.fromkeys(detail["route"])))]
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.0))
+
+    axis = axes[0]
+    saturated, monotonic = {}, {}
+    for route in order:
+        table = _shared.cohort(route)
+        saturated[route] = int(detail.loc[detail["route"] == route, "eq3_saturated"].sum())
+        monotonic[route] = int(detail.loc[detail["route"] == route, "a_monotonic"].sum())
+        for _, entry in table.iterrows():
+            extra = entry["extra"]
+            points = extra.get("a_points_us", {})
+            reference = float(points.get(str(extra.get("reference_pulse_width_us", 400)), np.nan))
+            if not points or not np.isfinite(reference) or not reference:
+                continue
+            widths = np.array(sorted(float(width) for width in points))
+            values = np.array([float(points[f"{width:.0f}"]) for width in widths]) / reference
+            pinned = bool(extra.get("eq3_saturated", False))
+            axis.plot(widths, values, color=_figures.BOUND if pinned else _figures.colour(route),
+                      lw=0.8, alpha=0.45 if pinned else 0.30, zorder=2)
+
+    grid = np.linspace(min(protocol.PULSE_WIDTHS_US), max(protocol.PULSE_WIDTHS_US), 100)
+    for route in order:
+        table = _shared.cohort(route)
+        middle = {name_of: float(table[name_of].astype(float).median())
+                  for name_of in ("a_scale", "pd0", "pdt") if name_of in table}
+        if len(middle) == 3:
+            curve = ding_model.a_calculation(grid * 1e-6, middle["a_scale"], middle["pd0"], middle["pdt"])
+            at_reference = ding_model.a_calculation(protocol.REFERENCE_PULSE_WIDTH_US * 1e-6,
+                                                    middle["a_scale"], middle["pd0"], middle["pdt"])
+            axis.plot(grid, curve / at_reference, color=_figures.colour(route), lw=2.4, zorder=4,
+                      label=f"eq. 3, {_figures.label(route)} (median parameters)")
+    axis.axhline(1.0, color="0.5", lw=0.8)
+    axis.axvline(protocol.REFERENCE_PULSE_WIDTH_US, color="0.5", lw=0.8, ls=":")
+    axis.set_xlabel(r"pulse width ($\mu$s)", fontsize=9)
+    axis.set_ylabel(f"A / A at {protocol.REFERENCE_PULSE_WIDTH_US} us", fontsize=9)
+    axis.set_title("(a) the six A of each participant", fontsize=10, fontweight="bold", loc="left")
+    axis.legend(fontsize=6)
+    axis.grid(alpha=0.3)
+    _figures.note(axis, "red: a participant whose a' saturated at its floor", size=6)
+
+    axis = axes[1]
+    for index, route in enumerate(order):
+        block = detail[detail["route"] == route]
+        values = block["eq3_r2"].to_numpy(float)
+        _figures.half_violin(axis, values, index, route)
+        spread = _figures.offsets(len(values), side=1)
+        for offset, value, pinned, rising in zip(spread, values, block["eq3_saturated"],
+                                                 block["a_monotonic"]):
+            axis.scatter(index + offset, value, s=18, zorder=3,
+                         marker="o" if rising else "X",
+                         color=_figures.BOUND if pinned else _figures.colour(route))
+        _figures.median_bar(axis, values, index)
+
+    axis.axhline(0.0, color="0.5", lw=0.8)
+    axis.set_ylabel(r"$R^2$ of eq. 3 through the six A", fontsize=9)
+    axis.set_title("(b) what eq. 3 makes of them", fontsize=10, fontweight="bold", loc="left")
+    _figures.route_ticks(axis, order)
+    axis.grid(alpha=0.3, axis="y")
+    fig.suptitle("What step 3 adds, route by route", fontsize=13, fontweight="bold")
+    _figures.caption(fig, "X marker: A does not rise with the pulse width for that participant. Red: a' "
+                          "sits on its floor, so eq. 3 has saturated.\n"
+                          + "   ".join(f"{_figures.label(route)}: {saturated[route]} saturated, "
+                                       f"{monotonic[route]} monotonic of "
+                                       f"{int((detail['route'] == route).sum())}" for route in order)
+                          + "\nThese are counts, not rates: a_refinement.csv writes them that way.")
+    fig.tight_layout(rect=(0, 0.06, 1, 0.94))
     _shared.save_figure(fig, ANALYSIS, name)
 
 
@@ -176,6 +270,7 @@ def main():
     print(picked.round(4).to_string(index=False) if not picked.empty else "  nothing pinned")
     _shared.write(picked, ANALYSIS, "shortlist")
     figure(routes)
+    figure_a_refinement(detail)
 
 
 if __name__ == "__main__":

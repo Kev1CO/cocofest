@@ -17,6 +17,7 @@ import pandas as pd
 from scipy import stats
 
 import _campaign
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -129,35 +130,152 @@ def summarise(detail: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def figure(detail: pd.DataFrame, name="profile_likelihood") -> None:
-    """One panel per parameter, every participant's profile normalised to its own optimum."""
+VERDICT_COLOURS = {"identifiable": "tab:green", "one-sided": "tab:orange",
+                   "not identifiable": "tab:purple"}
+
+
+def figure(detail: pd.DataFrame, summary=None, name="profile_likelihood") -> None:
+    """
+    One panel per parameter and per route, every participant's profile normalised to its own optimum.
+
+    The x axis is logarithmic because the intervals span orders of magnitude, which is exactly why the
+    summary writes their width in decades.
+    """
     if detail.empty:
         return
-    parameters = list(dict.fromkeys(detail["parameter"]))
-    fig, axes = plt.subplots(1, len(parameters), figsize=(3.2 * len(parameters), 3.8), squeeze=False)
+    summary = summarise(detail) if summary is None else summary
+    routes = _figures.ordered(list(dict.fromkeys(detail["route"])))
+    parameters = [name_of for name_of in _shared.PARAMETERS if name_of in set(detail["parameter"])]
+    if not parameters:
+        return
 
-    for axis, parameter in zip(axes[0], parameters):
-        group = detail[detail["parameter"] == parameter]
-        for subject, curve in group.groupby("subject"):
-            curve = curve[curve["converged"]].sort_values("value")
-            if curve.empty:
+    fig, axes = plt.subplots(len(routes), len(parameters),
+                             figsize=(3.4 * len(parameters), 3.4 * len(routes)), squeeze=False)
+    for row, route in enumerate(routes):
+        for column, parameter in enumerate(parameters):
+            axis = axes[row][column]
+            group = detail[(detail["route"] == route) & (detail["parameter"] == parameter)]
+            if group.empty:
+                axis.axis("off")
                 continue
-            best = curve["cost"].min()
-            axis.plot(curve["value"], curve["cost"] / best, lw=0.9, alpha=0.7)
-        block = read_profile(group)
-        if block:
-            axis.axhline(block["threshold"] / block["best_cost"], color="C3", lw=1.0, ls="--")
-        for bound in ("bound_low", "bound_high"):
-            axis.axvline(float(group[bound].iloc[0]), color="0.6", lw=0.8, ls=":")
-        axis.set_xscale("log")
-        axis.set_yscale("log")
-        axis.set_xlabel(parameter, fontsize=8)
-        axis.set_ylabel("cost / best cost", fontsize=8)
-        axis.tick_params(labelsize=7)
+            verdicts = (summary[(summary["route"] == route) & (summary["parameter"] == parameter)]
+                        .set_index("subject")["verdict"].to_dict() if not summary.empty else {})
 
-    fig.suptitle("profile likelihood (dashed: 95% threshold, dotted: parameter bounds)", fontsize=9)
-    fig.tight_layout()
+            middle = sorted(group["subject"].unique())[len(group["subject"].unique()) // 2]
+            thresholds = []
+            for subject, curve in group.groupby("subject"):
+                curve = curve[curve["converged"]].sort_values("value")
+                if curve.empty:
+                    continue
+                best = float(curve["cost"].min())
+                verdict = verdicts.get(subject, "identifiable")
+                axis.plot(curve["value"], curve["cost"] / best,
+                          color=VERDICT_COLOURS.get(verdict, "0.5"),
+                          lw=2.0 if subject == middle else 0.9,
+                          alpha=1.0 if subject == middle else 0.25, zorder=3 if subject == middle else 2)
+                block = read_profile(curve)
+                if block:
+                    thresholds.append(block["threshold"] / block["best_cost"])
+            if thresholds:
+                axis.axhline(float(np.median(thresholds)), color=_figures.THRESHOLD, lw=1.0, ls="--")
+            for bound in ("bound_low", "bound_high"):
+                edge = float(group[bound].iloc[0])
+                if np.isfinite(edge) and edge > 0:
+                    axis.axvline(edge, color=_figures.BOUND, lw=3.0, alpha=0.45)
+
+            axis.set_xscale("log")
+            axis.set_yscale("log")
+            axis.set_xlabel(parameter, fontsize=8)
+            if column == 0:
+                axis.set_ylabel(f"{_figures.label(route)}\ncost / best cost", fontsize=8)
+            axis.tick_params(labelsize=6.5)
+            axis.grid(alpha=0.25)
+            shares = [f"{verdict} {sum(1 for value in verdicts.values() if value == verdict)}"
+                      f"/{len(verdicts)}" for verdict in VERDICT_COLOURS if verdicts]
+            _figures.note(axis, "\n".join(shares) if shares else "no verdict stored", size=6)
+
+    fig.suptitle("Practical identifiability, one profile per participant", fontsize=13,
+                 fontweight="bold")
+    _figures.caption(fig, "Colour: the verdict of that participant's profile. Thick: the middle "
+                          "participant. Dashed grey: the median 95 % threshold. Red: the parameter's "
+                          "bounds.\n"
+                          "The x axis is logarithmic because the intervals cover orders of magnitude, "
+                          "which is why ci_width_decades is written in decades.")
+    fig.tight_layout(rect=(0, 0.05, 1, 0.95))
     _shared.save_figure(fig, ANALYSIS, name)
+
+
+def figure_compensation(detail: pd.DataFrame, name="compensation") -> None:
+    """
+    Which parameter takes over when a profiled one is held away from its optimum.
+
+    Read a row as: this parameter was held at the value on the x axis, and the column parameter was
+    re-optimised to whatever the y axis says, both relative to the best fit. A trajectory that falls as
+    the other rises is a compensation, and it is why the profiled parameter is not identifiable alone.
+    """
+    if detail.empty:
+        return
+    routes = _figures.ordered(list(dict.fromkeys(detail["route"])))
+    profiled = [name_of for name_of in _shared.PARAMETERS if name_of in set(detail["parameter"])]
+    refitted = [name_of for name_of in _shared.PARAMETERS if f"refit_{name_of}" in detail]
+    if not profiled or not refitted:
+        return
+
+    for route in routes:
+        block = detail[detail["route"] == route]
+        fig, axes = plt.subplots(len(profiled), len(refitted),
+                                 figsize=(2.3 * len(refitted) + 1, 2.3 * len(profiled) + 1),
+                                 squeeze=False)
+        for row, held in enumerate(profiled):
+            for column, other in enumerate(refitted):
+                axis = axes[row][column]
+                axis.set_xticks([])
+                axis.set_yticks([])
+                if held == other:
+                    axis.set_facecolor("0.95")
+                    if row == 0:
+                        axis.set_title(other, fontsize=8)
+                    if column == 0:
+                        axis.set_ylabel(held, fontsize=8)
+                    continue
+
+                slopes = []
+                for subject, curve in block[block["parameter"] == held].groupby("subject"):
+                    curve = curve[curve["converged"]].sort_values("value")
+                    if len(curve) < 3 or f"refit_{other}" not in curve:
+                        continue
+                    best_value = float(curve["best_value"].iloc[0])
+                    at_best = curve.iloc[(curve["value"] - best_value).abs().argmin()][f"refit_{other}"]
+                    x = curve["value"].to_numpy(float) / (best_value or 1.0)
+                    y = curve[f"refit_{other}"].to_numpy(float) / (float(at_best) or 1.0)
+                    usable = (x > 0) & (y > 0) & np.isfinite(x) & np.isfinite(y)
+                    if usable.sum() < 3:
+                        continue
+                    axis.plot(x[usable], y[usable], color="0.35", lw=0.7, alpha=0.35)
+                    slopes.append(np.polyfit(np.log10(x[usable]), np.log10(y[usable]), 1)[0])
+                if slopes:
+                    middle = float(np.median(slopes))
+                    axis.set_facecolor(plt.get_cmap("PuOr")(0.5 + max(-1.0, min(1.0, middle / 2)) / 2))
+                    axis.text(0.04, 0.92, f"slope {middle:+.2f}", transform=axes[row][column].transAxes,
+                              fontsize=6, va="top")
+                axis.set_xscale("log")
+                axis.set_yscale("log")
+                axis.axhline(1.0, color="0.6", lw=0.6)
+                axis.axvline(1.0, color="0.6", lw=0.6)
+                if row == 0:
+                    axis.set_title(other, fontsize=8)
+                if column == 0:
+                    axis.set_ylabel(held, fontsize=8)
+
+        fig.suptitle(f"What compensates what, {_figures.label(route)}", fontsize=12, fontweight="bold")
+        _figures.caption(fig, "Row: the parameter held at the value on the x axis, relative to its best "
+                              "fit. Column: the parameter re-optimised at each of those values, relative "
+                              "to its own best fit.\n"
+                              "This is the trajectory of a refit, not a correlation between estimates. "
+                              "A firmly negative slope, drawn orange, is a compensation; purple is a "
+                              "parameter that follows the profiled one instead.")
+        fig.tight_layout(rect=(0, 0.06, 1, 0.94))
+        _shared.save_figure(fig, ANALYSIS, f"{name}_{route}")
 
 
 def main():
@@ -168,7 +286,8 @@ def main():
     parser.add_argument("--points", type=int, default=DEFAULT_POINTS, help="grid points per profile")
     parser.add_argument("--span", type=float, default=DEFAULT_SPAN,
                         help="the grid runs from value/span to value*span")
-    parser.add_argument("--max-iter", type=int, default=3000)
+    parser.add_argument("--max-iter", type=int, default=steps.MAX_ITER,
+                        help=f"iterations per solve, capped at {steps.MAX_ITER} whatever is asked")
     parser.add_argument("--refresh", action="store_true", help="re-run participants already on disk")
     arguments = parser.parse_args()
 
@@ -185,7 +304,8 @@ def main():
     print(summary.round(5).to_string(index=False))
     _shared.write(detail, ANALYSIS, "all_profiles")
     _shared.write(summary, ANALYSIS, "summary")
-    figure(detail)
+    figure(detail, summary)
+    figure_compensation(detail)
 
 
 if __name__ == "__main__":

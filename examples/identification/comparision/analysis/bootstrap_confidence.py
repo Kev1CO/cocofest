@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 import _campaign
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -143,28 +144,62 @@ def coverage(predictions: pd.DataFrame) -> pd.DataFrame:
             .reset_index())
 
 
-def figure(parameters: pd.DataFrame, name="bootstrap_confidence") -> None:
-    """The width of every parameter's interval, as a share of its own value."""
+def figure(parameters: pd.DataFrame, covered=None, name="bootstrap_confidence") -> None:
+    """
+    The width of the intervals, and the number that decides whether they are intervals at all.
+
+    The coverage panel is deliberately the large one: a 95 % interval that holds the measurement 60 % of
+    the time is not a 95 % interval, however narrow it is.
+    """
     if parameters.empty:
         return
-    routes = list(dict.fromkeys(parameters["route"]))
-    fig, axis = plt.subplots(figsize=(1.8 * len(routes) + 4, 4.2))
+    routes = _figures.ordered(list(dict.fromkeys(parameters["route"])))
+    fig, axes = plt.subplots(1, 2, figsize=(8.0 + 1.6 * len(routes), 5.0),
+                             gridspec_kw={"width_ratios": [1.3, 1]})
 
+    axis = axes[0]
     width = 0.8 / max(len(routes), 1)
     positions = np.arange(len(_shared.PARAMETERS))
     for index, route in enumerate(routes):
         group = parameters[parameters["route"] == route]
         heights = [group.loc[group["parameter"] == name_of, "cv_pct"].median()
                    for name_of in _shared.PARAMETERS]
-        axis.bar(positions + index * width, heights, width, label=route.replace("_id", ""))
-
+        axis.bar(positions + index * width, heights, width, color=_figures.colour(route), alpha=0.8,
+                 label=_figures.label(route))
     axis.set_xticks(positions + 0.4 - width / 2)
     axis.set_xticklabels(_shared.PARAMETERS, rotation=45, ha="right", fontsize=7)
     axis.set_ylabel("bootstrap CV of the identified value (%)", fontsize=8)
+    axis.set_title("(a) how wide, parameter by parameter", fontsize=10, fontweight="bold", loc="left")
     axis.legend(fontsize=6)
     axis.tick_params(axis="y", labelsize=7)
+    _figures.note(axis, "drawn from ci_low/ci_high, the interval corrected by sqrt(m/n) because the\n"
+                        "bootstrap is a subsampling without replacement. percentile_low/high, the raw\n"
+                        "one, is on disk too and is what the coverage of panel (b) is read on.", size=5.5)
 
-    fig.tight_layout()
+    axis = axes[1]
+    covered = pd.DataFrame() if covered is None else covered
+    if covered.empty:
+        axis.axis("off")
+        axis.text(0.5, 0.5, "no coverage on disk yet", ha="center", va="center", fontsize=9,
+                  color="0.4")
+    else:
+        labels = []
+        for position, row in enumerate(covered.itertuples()):
+            axis.bar(position, row.coverage_pct, width=0.6, color=_figures.colour(row.route), alpha=0.8)
+            axis.text(position, row.coverage_pct + 1, f"{row.coverage_pct:.0f} %", ha="center",
+                      fontsize=8)
+            labels.append(f"{_figures.label(row.route)}\n{row.scalar}")
+        axis.axhline(95.0, color=_figures.THRESHOLD, ls="--", lw=1.2)
+        axis.set_xticks(range(len(labels)))
+        axis.set_xticklabels(labels, fontsize=6.5)
+        axis.set_ylim(0, 105)
+        axis.set_ylabel("share of measurements inside the 95 % interval", fontsize=9)
+    axis.set_title("(b) is it an interval at all", fontsize=10, fontweight="bold", loc="left")
+
+    fig.suptitle("Bootstrap: the coverage before the width", fontsize=13, fontweight="bold")
+    _figures.caption(fig, "Dashed grey: the nominal 95 %. A bar far below it says the interval does not "
+                          "hold what it claims, and no width in panel (a) repairs that.")
+    fig.tight_layout(rect=(0, 0.05, 1, 0.94))
     _shared.save_figure(fig, ANALYSIS, name)
 
 
@@ -201,7 +236,7 @@ def main():
     _shared.write(parameters, ANALYSIS, "parameter_intervals")
     _shared.write(predictions, ANALYSIS, "prediction_intervals")
     _shared.write(coverage(predictions), ANALYSIS, "coverage")
-    figure(parameters)
+    figure(parameters, coverage(predictions))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import _campaign
+import _figures
 import _shared
 import _simulator
 
@@ -71,30 +72,62 @@ def summarise(detail: pd.DataFrame) -> pd.DataFrame:
     return table.sort_values(["route", "peak_elasticity"], ascending=[True, False])
 
 
-def figure(summary: pd.DataFrame, name="local_sensitivity") -> None:
-    """The elasticity of every parameter, route by route, on a log axis because they span decades."""
-    if summary.empty:
-        return
-    routes = list(dict.fromkeys(summary["route"]))
-    fig, axis = plt.subplots(figsize=(1.6 * len(routes) + 4, 4.2))
+VISIBLE = 0.05  # below this a 10 % error in the parameter moves the peak by under 0.5 %
 
+
+def draw_local(axis, summary: pd.DataFrame, factors=DEFAULT_FACTORS,
+               conditions=DEFAULT_CONDITIONS) -> None:
+    """
+    The amplitude of the elasticity as the bar, its sign as the hatch.
+
+    Both columns are drawn because they say two different things: the amplitude whether the measurement
+    sees the parameter at all, the sign which way it pushes.
+    """
+    routes = _figures.ordered(list(dict.fromkeys(summary["route"])))
     width = 0.8 / max(len(routes), 1)
     positions = np.arange(len(_simulator.FREE))
+
     for index, route in enumerate(routes):
         group = summary[summary["route"] == route].set_index("parameter")
-        heights = [group["peak_elasticity"].get(name, np.nan) for name in _simulator.FREE]
-        axis.bar(positions + index * width, heights, width, label=route.replace("_id", ""))
+        heights = [abs(group["peak_elasticity"].get(name, np.nan)) for name in _simulator.FREE]
+        signs = [group.get("signed_peak_elasticity", pd.Series(dtype=float)).get(name, np.nan)
+                 for name in _simulator.FREE]
+        errors = [group.get("peak_elasticity_sd", pd.Series(dtype=float)).get(name, np.nan)
+                  for name in _simulator.FREE]
+        bars = axis.bar(positions + index * width, heights, width, yerr=errors, capsize=2,
+                        color=_figures.colour(route), alpha=0.75, label=_figures.label(route),
+                        error_kw={"lw": 0.6})
+        for bar, sign in zip(bars, signs):
+            if np.isfinite(sign) and sign < 0:
+                bar.set_hatch("xx")
+                bar.set_edgecolor("white")
 
     axis.set_xticks(positions + 0.4 - width / 2)
     axis.set_xticklabels(_simulator.FREE, rotation=45, ha="right", fontsize=7)
     axis.set_yscale("log")
     axis.set_ylabel("|elasticity| of the peak force", fontsize=8)
-    axis.axhline(0.05, color="C3", lw=0.9, ls="--")
-    axis.text(0.01, 0.95, "below the dashed line: a 10% error in the parameter moves the peak by under 0.5%",
-              transform=axis.transAxes, fontsize=6, va="top")
+    axis.axhline(VISIBLE, color=_figures.BOUND, lw=0.9, ls="--")
     axis.legend(fontsize=6)
     axis.tick_params(axis="y", labelsize=7)
+    _figures.note(axis, f"bar: the mean of the absolute elasticity. Cross hatch: the signed mean is "
+                        f"negative,\nso the parameter pushes the peak down.\n"
+                        f"red dashed: {VISIBLE}, under which a 10 % error in the parameter moves the peak "
+                        f"by under 0.5 %\n"
+                        f"factors {', '.join(str(factor) for factor in factors)} around each "
+                        f"participant's own values\n"
+                        f"conditions " + ", ".join(f"({frequency} Hz, {pulse_width} us)"
+                                                   for frequency, pulse_width in conditions), size=5.5)
 
+
+def figure(summary: pd.DataFrame, name="local_sensitivity") -> None:
+    """The elasticity of every parameter, route by route, on a log axis because they span decades."""
+    if summary.empty:
+        return
+    routes = list(dict.fromkeys(summary["route"]))
+    fig, axis = plt.subplots(figsize=(1.6 * len(routes) + 5, 4.6))
+    draw_local(axis, summary)
+    fig.suptitle("What the peak force feels when one parameter is nudged", fontsize=11,
+                 fontweight="bold")
     fig.tight_layout()
     _shared.save_figure(fig, ANALYSIS, name)
 

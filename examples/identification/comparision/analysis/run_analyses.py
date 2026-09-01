@@ -90,6 +90,8 @@ PROGRAMS = {
     "agreement_metrology": Program("ICC graded, SEM, MDC95, Bland-Altman"),
     "prediction_accuracy": Program("%model error, R2, NRMSE, BFR, 95% prediction interval"),
     "parameter_bounds": Program("bounds, dispersion, A between step 2 and step 3"),
+    "route_equivalence": Program("paired against sensor_id: slopes, equivalence, ranks"),
+    "feasibility": Program("what each route resolves, read off the five campaigns"),
     # it reads movement_riener_id's stored results, which costs a second and re-identifies nothing
     # "passive_torque_comparison": Program("movement_id against movement_riener_id",
     #                                      routes=route_table.NAMES),

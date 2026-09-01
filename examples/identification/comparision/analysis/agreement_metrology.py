@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -105,13 +106,35 @@ def per_subject(routes) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def relative(measured, predicted) -> dict:
+    """The same block on the relative difference, which is what a proportional bias asks for."""
+    measured, predicted = np.asarray(measured, float), np.asarray(predicted, float)
+    average = 0.5 * (predicted + measured)
+    usable = np.isfinite(average) & (average != 0)
+    difference = 100 * (predicted - measured)[usable] / average[usable]
+    spread = float(difference.std(ddof=1))
+    return {"average": average[usable], "difference": difference, "bias": float(difference.mean()),
+            "loa_low": float(difference.mean() - 1.96 * spread),
+            "loa_high": float(difference.mean() + 1.96 * spread)}
+
+
+def absolute(measured, predicted) -> dict:
+    """The difference in the route's own unit, the usual Bland-Altman."""
+    measured, predicted = np.asarray(measured, float), np.asarray(predicted, float)
+    block = metrology(measured, predicted)
+    return {"average": 0.5 * (predicted + measured), "difference": predicted - measured,
+            "bias": block["bias"], "loa_low": block["loa_low"], "loa_high": block["loa_high"]}
+
+
 def figure(routes, name="bland_altman") -> None:
-    """One Bland-Altman panel per route, the peak on top of the force-time integral."""
-    routes = [route for route in routes if not _shared.testing(route).empty]
+    """
+    Bland-Altman on the peak and the time integral, laid out like the measured-against-predicted figure.
+    """
+    routes = [route for route in _figures.ordered(routes) if not _shared.testing(route).empty]
     if not routes:
         return
 
-    fig, axes = plt.subplots(2, len(routes), figsize=(3.1 * len(routes), 6.4), squeeze=False)
+    fig, axes = plt.subplots(2, len(routes), figsize=(5.2 * len(routes), 8.0), squeeze=False)
     for column, route in enumerate(routes):
         held_out = _shared.testing(route)
         unit = _shared.cohort(route)["unit"].iloc[0]
@@ -119,23 +142,57 @@ def figure(routes, name="bland_altman") -> None:
             axis = axes[row][column]
             measured = held_out[f"{scalar}_measured"].to_numpy(float)
             predicted = held_out[f"{scalar}_predicted"].to_numpy(float)
-            difference, average = predicted - measured, 0.5 * (predicted + measured)
             block = metrology(measured, predicted)
+            proportional = block["proportional_bias_p"] < 0.05
+            drawn = relative(measured, predicted) if proportional else absolute(measured, predicted)
+            told = "%" if proportional else (unit if scalar == "peak" else f"{unit} s")
 
-            axis.scatter(average, difference, s=12, alpha=0.6, edgecolor="none")
+            for _, group in held_out.groupby("subject"):
+                one = (relative if proportional else absolute)(group[f"{scalar}_measured"],
+                                                               group[f"{scalar}_predicted"])
+                order = np.argsort(one["average"])
+                axis.plot(np.asarray(one["average"])[order], np.asarray(one["difference"])[order],
+                          color="0.6", lw=0.5, alpha=0.6, zorder=1)
+            axis.scatter(drawn["average"], drawn["difference"], s=13, zorder=2, edgecolor="none",
+                         color=_figures.colour(route), alpha=0.75)
+
+            # The confidence band of the bias itself, which is not the limits of agreement
+            n = len(drawn["difference"])
+            half = 1.96 * float(np.std(drawn["difference"], ddof=1)) / np.sqrt(max(n, 1))
+            axis.axhspan(drawn["bias"] - half, drawn["bias"] + half, color="0.6", alpha=0.20, zorder=0)
             axis.axhline(0.0, color="0.6", lw=0.8)
-            axis.axhline(block["bias"], color="C3", lw=1.2)
-            for limit in (block["loa_low"], block["loa_high"]):
-                axis.axhline(limit, color="C3", lw=0.9, ls="--")
-            axis.set_title(f"{route}\n{scalar} - ICC {block['icc']:.2f} ({block['icc_grade']})"
-                           if row == 0 else f"{scalar} - ICC {block['icc']:.2f} ({block['icc_grade']})",
-                           fontsize=7)
-            axis.set_xlabel(f"mean ({unit})", fontsize=7)
-            axis.set_ylabel(f"predicted - measured ({unit})", fontsize=7)
-            axis.tick_params(labelsize=6)
-            axis.text(0.02, 0.02, f"MDC95 {block['mdc95_pct']:.0f}%", transform=axis.transAxes, fontsize=6)
+            axis.axhline(drawn["bias"], color=_figures.colour(route), lw=1.4)
+            for limit in (drawn["loa_low"], drawn["loa_high"]):
+                axis.axhline(limit, color=_figures.colour(route), lw=1.0, ls="--")
 
-    fig.tight_layout()
+            if row == 0:
+                axis.set_title(_figures.label(route), fontsize=10, fontweight="bold")
+            axis.set_xlabel(f"mean of measured and predicted "
+                            f"({unit if scalar == 'peak' else f'{unit} s'})", fontsize=8)
+            axis.set_ylabel(f"predicted - measured ({told})", fontsize=8)
+            axis.tick_params(labelsize=7)
+            axis.grid(alpha=0.3)
+            _figures.note(axis,
+                          f"{scalar.upper()}   ICC {block['icc']:.2f} ({block['icc_grade']})\n"
+                          f"bias {drawn['bias']:.2f}, LoA [{drawn['loa_low']:.2f}, "
+                          f"{drawn['loa_high']:.2f}] {told}\n"
+                          f"proportional bias p {block['proportional_bias_p']:.3f} -> "
+                          f"{'relative' if proportional else 'absolute'} scale\n"
+                          f"SEM {block['sem_pct']:.0f} %   MDC95 {block['mdc95_pct']:.0f} % "
+                          f"(of the mean measured)", size=6)
+            _figures.count(axis, f"{n} testing trains, {held_out['subject'].nunique()} participants")
+
+    margin = table([_figures.REFERENCE])
+    quoted = (f"The MDC95 of {_figures.REFERENCE} - "
+              + ", ".join(f"{row['scalar']} {row['mdc95_pct']:.0f} %" for _, row in margin.iterrows())
+              + " - is the equivalence margin the paired comparison uses; it is computed here and nowhere "
+                "else." if not margin.empty else "")
+    fig.suptitle("Bland-Altman: Data the model identification did not train on", fontsize=13, fontweight="bold")
+    _figures.caption(fig, "SEM and MDC95 are normalised by the mean of the measurement, for comparison "
+                          "between identification methods.\n"
+                          "Thin lines join the trains of one participant. Shaded: the confidence band of "
+                          "the bias, not the limits of agreement.\n" + quoted)
+    fig.tight_layout(rect=(0, 0.07, 1, 0.95))
     _shared.save_figure(fig, ANALYSIS, name)
 
 

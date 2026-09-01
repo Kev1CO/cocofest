@@ -173,6 +173,9 @@ def at_bound_of(values, limits, tolerance=1e-3) -> list:
 
 
 # ---- Solving one step ---- #
+MAX_ITER = 1000
+
+
 def ipopt(max_iter):
     """
     The solver every step of every route is given, so none of them can drift from the others.
@@ -180,7 +183,8 @@ def ipopt(max_iter):
     ma57 where it exists and mumps elsewhere: the HSL solvers are not part of the Windows environment this
     study is written on, so asking for ma57 there fails at the first solve.
     """
-    solver = Solver.IPOPT(_max_iter=max_iter, _constr_viol_tol=1e-8, _compl_inf_tol=1e-8)
+    solver = Solver.IPOPT(_max_iter=min(int(max_iter), MAX_ITER), _constr_viol_tol=1e-8,
+                          _compl_inf_tol=1e-8)
     solver.set_linear_solver("ma57" if sys.platform.startswith("linux") else "mumps")
     solver.__dict__["_acceptable_iter"] = 0
     solver.__dict__["_bound_relax_factor"] = 0.0
@@ -194,7 +198,7 @@ def solver_status(program) -> str:
 
 
 def solve(route, subject, phases, free, model_class, table, constants=None, initial_guesses=None,
-          max_iter=5000) -> dict:
+          max_iter=MAX_ITER) -> dict:
     """Build and solve one step, and return what it identified, with the fit it identified it on."""
     program = programs.prepare_ocp(
         subject,
@@ -355,7 +359,7 @@ def step2_context(route, subject, design=None, tau2=None, initial_guesses=None, 
             "table": table, "guesses": guesses, "watch": watch, "folders": folders}
 
 
-def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=5000,
+def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=MAX_ITER,
              tau2=None, eq3="fit", design=None, initial_guesses=None, **load_kwargs) -> dict:
     """
     The whole algorithm on one subject, for one route.
@@ -636,7 +640,7 @@ def draw(route, subject, relationship, pulse_widths, a_values, table, parameters
     )
 
 
-def main(route, subjects=range(1, 21), save=True, debug=True, show_debug=False, max_iter=5000,
+def main(route, subjects=range(1, 21), save=True, debug=True, show_debug=False, max_iter=MAX_ITER,
          tau2=None, eq3="fit", **load_kwargs):
     """Run the five steps of one route on a list of subjects, then print the cohort table."""
     for i in subjects:

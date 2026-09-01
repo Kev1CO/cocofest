@@ -10,6 +10,7 @@ from SALib.analyze import fast as salib_fast
 from SALib.sample import fast_sampler
 
 import _campaign
+import _figures
 import _shared
 import _simulator
 
@@ -97,29 +98,78 @@ def summarise(detail: pd.DataFrame) -> pd.DataFrame:
     return table.sort_values(["route", "scalar", "ST"], ascending=[True, True, False])
 
 
-def figure(summary: pd.DataFrame, name="fast_global_sensitivity") -> None:
-    """S1 and ST side by side, on the peak, so the interaction share reads as the gap between them."""
+READING_COLOURS = {"invisible to the data": "0.75", "only through interactions": "tab:orange",
+                   "identifiable on its own": "tab:green"}
+
+
+def figure(summary: pd.DataFrame, box="identified", conditions=DEFAULT_CONDITIONS,
+           name="fast_global_sensitivity") -> None:
+    """
+    What the measurement sees: the local elasticity beside the global indices.
+
+    Panel (a) is read off local_sensitivity's own summary when that campaign has run; the two answer
+    different questions and the figure carries both so neither is quoted alone.
+    """
     peak = summary[summary["scalar"] == "peak"] if "scalar" in summary else summary
     if peak.empty:
         return
-    routes = list(dict.fromkeys(peak["route"]))
-    fig, axes = plt.subplots(1, len(routes), figsize=(4.4 * len(routes), 4.2), squeeze=False)
+    routes = _figures.ordered(list(dict.fromkeys(peak["route"])))
 
+    fig, axes = plt.subplots(1, 2, figsize=(9.0 + 1.6 * len(routes), 5.2))
+    axis = axes[0]
+    local = _shared.read("local_sensitivity", "summary") \
+        if _shared.path_of("local_sensitivity", "summary").exists() else pd.DataFrame()
+    if local.empty:
+        axis.axis("off")
+        axis.text(0.5, 0.5, "local_sensitivity has not run yet:\nits summary is what this panel draws",
+                  ha="center", va="center", fontsize=9, color="0.4")
+    else:
+        import local_sensitivity
+
+        local_sensitivity.draw_local(axis, local)
+    axis.set_title("(a) local, around each participant's own values", fontsize=10, fontweight="bold",
+                   loc="left")
+
+    axis = axes[1]
+    width = 0.8 / max(len(routes), 1)
     positions = np.arange(len(_simulator.FREE))
-    for axis, route in zip(axes[0], routes):
+    for index, route in enumerate(routes):
         group = peak[peak["route"] == route].set_index("parameter")
-        first = [group["S1"].get(name, np.nan) for name in _simulator.FREE]
-        total = [group["ST"].get(name, np.nan) for name in _simulator.FREE]
-        axis.bar(positions - 0.2, first, 0.4, label="S1 (own effect)")
-        axis.bar(positions + 0.2, total, 0.4, label="ST (with interactions)")
-        axis.set_xticks(positions)
-        axis.set_xticklabels(_simulator.FREE, rotation=45, ha="right", fontsize=7)
-        axis.set_ylabel("share of the variance of the peak force", fontsize=8)
-        axis.set_title(route, fontsize=8)
-        axis.legend(fontsize=6)
-        axis.tick_params(axis="y", labelsize=7)
+        for offset, name_of in zip(positions, _simulator.FREE):
+            first = float(group["S1"].get(name_of, np.nan))
+            total = float(group["ST"].get(name_of, np.nan))
+            told = group.get("reading", pd.Series(dtype=object)).get(name_of, "")
+            tint = READING_COLOURS.get(told, "0.5")
+            x = offset + index * width
+            # S1 solid, carried on to ST in the same colour: the gap is the interaction share
+            axis.bar(x, max(total - first, 0.0), width, bottom=max(first, 0.0), color=tint, alpha=0.30,
+                     edgecolor=_figures.colour(route), linewidth=1.6)
+            axis.bar(x, first, width, color=tint, edgecolor=_figures.colour(route), linewidth=1.6)
+    axis.set_xticks(positions + 0.4 - width / 2)
+    axis.set_xticklabels(_simulator.FREE, rotation=45, ha="right", fontsize=7)
+    axis.set_ylabel("share of the variance of the peak force", fontsize=8)
+    axis.set_title("(b) global, FAST indices", fontsize=10, fontweight="bold", loc="left")
+    axis.tick_params(axis="y", labelsize=7)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=tint, label=told)
+               for told, tint in READING_COLOURS.items()]
+    handles += [plt.Rectangle((0, 0), 1, 1, facecolor="0.5", edgecolor=_figures.colour(route),
+                              label=_figures.label(route)) for route in routes]
+    axis.legend(handles=handles, fontsize=6, loc="upper right")
+    _figures.note(axis, "solid: S1, the parameter's own effect. Faded on top: up to ST, so the faded "
+                        "part\nis the share that only exists through interactions.\n"
+                        "The colour is the reading column, already written: it is not re-thresholded "
+                        "here.", size=5.5)
 
-    fig.tight_layout()
+    fig.suptitle("What the measurement sees of each parameter", fontsize=13, fontweight="bold")
+    _figures.caption(fig, f"Box: {box}. Conditions swept: "
+                          + ", ".join(f"({frequency} Hz, {pulse_width} us)"
+                                      for frequency, pulse_width in conditions)
+                          + " - not a full sweep of the design.\n"
+                          "For the isometric routes the simulated model is the muscle model alone; for a "
+                          "movement route it goes through that route's own program. The indices of a "
+                          "movement route are indicative, not equivalent,\nwhich is exactly the "
+                          "comparison these grouped bars invite: do not make it.")
+    fig.tight_layout(rect=(0, 0.09, 1, 0.94))
     _shared.save_figure(fig, ANALYSIS, name)
 
 
@@ -154,7 +204,7 @@ def main():
     print(summary.round(3).to_string(index=False))
     _shared.write(detail, ANALYSIS, "all_indices")
     _shared.write(summary, ANALYSIS, "summary")
-    figure(summary)
+    figure(summary, box=arguments.box)
 
 
 if __name__ == "__main__":

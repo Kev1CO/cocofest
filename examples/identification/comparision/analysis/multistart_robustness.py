@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import _campaign
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -52,8 +53,7 @@ def run_subject(route, subject: str, starts: int, seed: int, scope: str) -> pd.D
     for index, guess in enumerate(draw(box, starts, seed)):
         print(f"  P{subject} start {index + 1}/{starts}"
               + ("" if not guess else " " + " ".join(f"{k}={v:.4g}" for k, v in guess.items())), flush=True)
-        outcome = _campaign.identify(route, subject, initial_guesses=guess or None,
-                                     **({"max_iter": 5000} if scope == "full" else {}))
+        outcome = _campaign.identify(route, subject, initial_guesses=guess or None)
         rows.append(_campaign.flat(outcome, route=route.METHOD, start=index,
                                    is_default=index == 0,
                                    **{f"guess_{name}": value for name, value in guess.items()}))
@@ -94,34 +94,84 @@ def summarise(detail: pd.DataFrame, tolerance: float) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def figure(detail: pd.DataFrame, name="multistart_robustness") -> None:
-    """The cost of every start against the best found, and the spread each parameter kept."""
-    converged = detail[detail["converged"] & (detail["failed"] == "")]
-    if converged.empty:
+def figure(detail: pd.DataFrame, summary: pd.DataFrame, tolerance=DEFAULT_TOLERANCE,
+           name="multistart_robustness") -> None:
+    """
+    Whether the answer is the optimum or the one the default start happens to reach.
+
+    The participants are ordered by how wide their best basin is, because that order is information: the
+    ones on the left are the ones a single start is least likely to land in.
+    """
+    usable = detail[detail["failed"] == ""]
+    if usable.empty:
         return
+    routes = _figures.ordered(list(dict.fromkeys(usable["route"])))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.4))
-    axis = axes[0]
-    for subject, group in converged.groupby("subject"):
-        best = group["step2_cost"].min()
-        axis.scatter([subject] * len(group), 100 * (group["step2_cost"] - best) / best,
-                     s=10, alpha=0.6, edgecolor="none")
-    axis.set_yscale("symlog", linthresh=1.0)
-    axis.set_xlabel("participant", fontsize=8)
-    axis.set_ylabel("step 2 cost above the best start (%)", fontsize=8)
-    axis.tick_params(axis="x", labelrotation=90, labelsize=6)
-    axis.tick_params(axis="y", labelsize=7)
+    fig, axes = plt.subplots(len(routes), 2, figsize=(15, 4.4 * len(routes)), squeeze=False,
+                             gridspec_kw={"width_ratios": [2.2, 1]})
+    for row, route in enumerate(routes):
+        block = usable[usable["route"] == route]
+        shares = summary[summary["route"] == route].set_index("subject") if not summary.empty \
+            else pd.DataFrame()
+        order = (shares["basin_share"].sort_values().index.tolist()
+                 if "basin_share" in shares else sorted(block["subject"].unique()))
 
-    axis = axes[1]
-    present = [name_of for name_of in _shared.PARAMETERS if name_of in converged]
-    _shared.boxplot(axis, [converged.groupby("subject")[name_of].apply(
-        lambda values: 100 * values.std() / values.mean() if values.mean() else np.nan).dropna()
-        for name_of in present], present, showfliers=False)
-    axis.set_ylabel("between-start CV of the identified value (%)", fontsize=8)
-    axis.tick_params(axis="x", labelrotation=90, labelsize=7)
-    axis.tick_params(axis="y", labelsize=7)
+        axis = axes[row][0]
+        for position, subject in enumerate(order):
+            group = block[block["subject"] == subject]
+            converged = group[group["converged"]]
+            if converged.empty:
+                continue
+            best = float(converged["step2_cost"].min())
+            above = 100 * (group["step2_cost"] - best) / best
+            axis.scatter(position + _figures.jitter(len(group), 0.16), above, s=12, alpha=0.6,
+                         edgecolor="none", color=_figures.colour(route))
+            default = group[group["is_default"]]
+            if not default.empty:
+                axis.scatter([position], 100 * (default["step2_cost"].iloc[0] - best) / best, s=44,
+                             marker="*", color="black", zorder=4)
+        axis.set_yscale("symlog", linthresh=1.0)
+        axis.axhline(100 * tolerance, color=_figures.THRESHOLD, ls="--", lw=0.9)
+        axis.set_xticks(range(len(order)))
+        axis.set_xticklabels([f"P{subject}" for subject in order], fontsize=6, rotation=90)
+        axis.set_xlabel("participant, ordered by how wide the best basin is", fontsize=8)
+        axis.set_ylabel("step 2 cost above the best start (%)", fontsize=8)
+        axis.set_title(_figures.label(route), fontsize=10, fontweight="bold", loc="left")
+        axis.tick_params(axis="y", labelsize=7)
+        axis.grid(alpha=0.3, axis="y")
+        told = ""
+        if "basin_share" in shares:
+            told = (f"median basin share {shares['basin_share'].median():.2f}: that share of the "
+                    f"converged starts reach the best cost\n"
+                    f"median cost the default start missed by "
+                    f"{shares['best_vs_default_pct'].median():.2f} %\n")
+        _figures.note(axis, told + f"black star: the start the procedure itself uses\n"
+                                   f"dashed: the {100 * tolerance:.0f} % tolerance that defines the basin, "
+                                   f"and the starts panel (b) reads", size=6)
 
-    fig.tight_layout()
+        axis = axes[row][1]
+        present = [name_of for name_of in _shared.PARAMETERS if name_of in block]
+        spreads = []
+        for name_of in present:
+            spreads.append(block.groupby("subject")[name_of].apply(
+                lambda values: 100 * values.std() / values.mean() if values.mean() else np.nan).dropna())
+        if spreads:
+            axis.boxplot(spreads, positions=range(len(present)), widths=0.55, showfliers=False,
+                         medianprops=dict(color="black", linewidth=1.2))
+            for position, values in enumerate(spreads):
+                _figures.points(axis, position, values.to_numpy(float), route, size=12)
+        axis.set_xticks(range(len(present)))
+        axis.set_xticklabels(present, rotation=45, ha="right", fontsize=7)
+        axis.set_ylabel("between-start CV of the identified value (%)", fontsize=8)
+        axis.tick_params(axis="y", labelsize=7)
+        axis.grid(alpha=0.3, axis="y")
+        _figures.count(axis, f"{block['subject'].nunique()} participants")
+
+    fig.suptitle("Is the optimum reachable from anywhere, or only from where the procedure starts",
+                 fontsize=13, fontweight="bold")
+    _figures.caption(fig, f"(b) is computed on the starts of the best basin only, the ones within "
+                          f"{100 * tolerance:.0f} % of the best cost found.")
+    fig.tight_layout(rect=(0, 0.05, 1, 0.95))
     _shared.save_figure(fig, ANALYSIS, name)
 
 
@@ -150,7 +200,7 @@ def main():
     print(summary.round(4).to_string(index=False))
     _shared.write(detail, ANALYSIS, "all_starts")
     _shared.write(summary, ANALYSIS, "summary")
-    figure(detail)
+    figure(detail, summary, arguments.tolerance)
 
 
 if __name__ == "__main__":

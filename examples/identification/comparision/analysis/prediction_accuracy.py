@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+import _figures
 import _shared
 
 import matplotlib.pyplot as plt
@@ -104,36 +105,114 @@ def per_subject(routes) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+SCORES = (("peak_error_pct", "peak %model error", True),
+          ("fti_error_pct", "integral %model error", True),
+          ("r2", r"$R^2$ on the shape of the signal", False),
+          ("bfr_pct", "Best Fit Rate (%)", False),
+          ("nrmse_pct", "NRMSE (% of the measured range)", False))
+
+# The line scores.svg has always drawn. It is this study's own reading line, not a published threshold
+READING_LINE = 25.0
+
+
 def figure(routes, name="prediction_accuracy") -> None:
-    """The accuracy of every route side by side, and the residual distribution the interval comes from."""
+    """
+    The five dimensionless scores, one panel each, the reference route first.
+
+    Half a violin, the participants as points on the other half, and one line per participant across the
+    routes: at n = 20 a box alone hides exactly what the paired result says.
+    """
     subjects = per_subject(routes)
     if subjects.empty:
         return
-    order = [route for route in routes if route in set(subjects["route"])]
+    order = [route for route in _figures.ordered(routes) if route in set(subjects["route"])]
 
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
-    for axis, column, label in zip(axes[:2], ("bfr_pct", "peak_error_pct"),
-                                   ("Best Fit Rate (%)", "peak %model error")):
-        _shared.boxplot(axis,
-                        [subjects.loc[subjects["route"] == route, column].dropna() for route in order],
-                        [route.replace("_id", "") for route in order], showfliers=False)
-        axis.axhline(0.0, color="0.6", lw=0.8)
+    fig, axes = plt.subplots(1, len(SCORES), figsize=(4.0 * len(SCORES), 4.8))
+    positions = list(range(len(order)))
+    spread = _figures.offsets(subjects["subject"].nunique(), side=1)
+
+    for axis, (column, label, has_line) in zip(axes, SCORES):
+        _figures.paired_lines(axis, positions, subjects, column, order, spread=spread)
+        for position, route in zip(positions, order):
+            values = subjects.loc[subjects["route"] == route, column].to_numpy(float)
+            _figures.half_violin(axis, values, position, route)
+            _figures.points(axis, position, values, route, offset=spread[:len(values)])
+            _figures.median_bar(axis, values, position)
+        if has_line:
+            axis.axhline(READING_LINE, color=_figures.THRESHOLD, ls="--", lw=0.9)
+            _figures.note(axis, f"dashed: {READING_LINE:.0f} %, the reading line this study has always\n"
+                                f"drawn. It is a convention of the study, not a published threshold.",
+                          size=5.5)
+        if column == "r2":
+            axis.axhline(0.0, color="0.6", lw=0.8)
+            _figures.note(axis, "this is a coefficient of determination on the shape of the\n"
+                                "signal, not a correlation: it can be firmly negative, and\n"
+                                "the axis is left free so those participants stay visible",
+                          size=5.5)
         axis.set_ylabel(label, fontsize=8)
-        axis.tick_params(axis="x", labelrotation=90, labelsize=6)
+        _figures.route_ticks(axis, order)
         axis.tick_params(axis="y", labelsize=7)
+        axis.grid(alpha=0.3, axis="y")
+        _figures.count(axis, f"{subjects['subject'].nunique()} participants")
 
-    axis = axes[2]
-    for route in order:
+    fig.suptitle("The five scores that compare between routes, one point per participant",
+                 fontsize=13, fontweight="bold")
+    _figures.caption(fig, "Only dimensionless scores are put side by side: N, N.s and deg do not share "
+                          "an axis.\n" + _figures.ASYMMETRY)
+    fig.tight_layout(rect=(0, 0.09, 1, 0.94))
+    _shared.save_figure(fig, ANALYSIS, name)
+
+
+def figure_intervals(routes, name="prediction_intervals") -> None:
+    """The interval one would quote for a new participant, and the one the code says not to quote."""
+    table = intervals(routes)
+    if table.empty:
+        return
+    table = table.set_index(["route", "scalar"])
+    rows = [(route, scalar) for route in _figures.ordered(routes) for scalar in _shared.SCALARS
+            if (route, scalar) in table.index]
+
+    fig, axis = plt.subplots(figsize=(11, 1.0 * len(rows) + 3.2))
+    for position, (route, scalar) in enumerate(rows):
+        block = table.loc[(route, scalar)]
         held_out = _shared.testing(route)
-        axis.hist(held_out["peak_signed_error"], bins=25, histtype="step",
-                  label=route.replace("_id", ""), density=True)
-    axis.axvline(0.0, color="0.6", lw=0.8)
-    axis.set_xlabel("signed peak error (%)", fontsize=8)
-    axis.set_ylabel("density", fontsize=8)
-    axis.legend(fontsize=5.5)
-    axis.tick_params(labelsize=7)
+        errors = held_out[f"{scalar}_signed_error"].to_numpy(float)
 
-    fig.tight_layout()
+        # The errors the interval is read off, drawn behind the interval rather than in a panel of their own
+        heights, edges = np.histogram(errors[np.isfinite(errors)], bins=25, density=True)
+        if heights.max() > 0:
+            # The rows run downwards, so the density grows away from its own line rather than into the next
+            axis.bar(0.5 * (edges[:-1] + edges[1:]), -0.8 * heights / heights.max(), bottom=position,
+                     width=np.diff(edges), color=_figures.colour(route), alpha=0.18, zorder=1)
+
+        for kind, width, alpha in (("empirical", 2.6, 1.0), ("gaussian", 1.0, 0.45)):
+            quoted = kind == block["quote"]
+            axis.plot([block[f"pi95_{kind}_low"], block[f"pi95_{kind}_high"]], [position] * 2,
+                      color=_figures.colour(route), lw=width if quoted else 1.0,
+                      alpha=1.0 if quoted else 0.45, solid_capstyle="butt", zorder=3,
+                      label=None)
+            axis.text(block[f"pi95_{kind}_high"], position + (0.16 if quoted else -0.28),
+                      f" {kind}{' (quoted)' if quoted else ''}", fontsize=6, va="center",
+                      color=_figures.colour(route), alpha=1.0 if quoted else 0.6)
+        axis.scatter(block["bias_pct"], position, s=26, color=_figures.colour(route), zorder=4)
+        axis.text(-0.01, position, f"{_figures.label(route)}  {scalar.upper()}", ha="right", va="center",
+                  fontsize=8, transform=axis.get_yaxis_transform())
+        axis.text(1.005, position, f"Shapiro p {block['shapiro_p']:.3g}   n {int(block['n'])}",
+                  ha="left", va="center", fontsize=6, color="0.3",
+                  transform=axis.get_yaxis_transform())
+
+    axis.axvline(0.0, color="0.6", lw=0.8)
+    axis.set_yticks([])
+    axis.set_ylim(len(rows) - 0.2, -0.8)
+    axis.set_xlabel("signed %model error on one testing train", fontsize=9)
+    axis.grid(alpha=0.3, axis="x")
+    _figures.note(axis, "The quote column has already decided: a Shapiro p under 5 % means the "
+                        "percentiles,\nnot +/- 1.96 SD. A figure drawing the gaussian interval "
+                        "everywhere would contradict it.", size=6)
+
+    fig.suptitle("What error to announce for a participant nobody has identified yet",
+                 fontsize=12, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     _shared.save_figure(fig, ANALYSIS, name)
 
 
@@ -154,6 +233,7 @@ def main():
 
     _shared.write(per_subject(routes), ANALYSIS, "per_subject")
     figure(routes)
+    figure_intervals(routes)
 
 
 if __name__ == "__main__":
