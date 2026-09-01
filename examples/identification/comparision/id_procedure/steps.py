@@ -88,12 +88,17 @@ def initial_a(route, phases) -> float:
     return float(np.mean(peaks))
 
 
+def in_unit(route, values) -> np.ndarray:
+    """The observable in the unit the route reports it in, ex: the angle state in rad read out in degrees."""
+    return route.SCALE * np.asarray(values, dtype=float)
+
+
 def excursion_of(route, phase) -> np.ndarray:
     """
     What the stimulation added to the resting level of the observable, the signal step 1 relaxes on.
     """
     target = np.asarray(phase["target"], dtype=float)
-    return route.SCALE * (target - target[0] if route.COST == "angle" else target)
+    return in_unit(route, target - target[0] if route.COST == "angle" else target)
 
 
 def relaxation_window(route, phase) -> np.ndarray:
@@ -175,10 +180,17 @@ def ipopt(max_iter):
     ma57 where it exists and mumps elsewhere: the HSL solvers are not part of the Windows environment this
     study is written on, so asking for ma57 there fails at the first solve.
     """
-    solver = Solver.IPOPT(_max_iter=max_iter)
+    solver = Solver.IPOPT(_max_iter=max_iter, _constr_viol_tol=1e-8, _compl_inf_tol=1e-8)
     solver.set_linear_solver("ma57" if sys.platform.startswith("linux") else "mumps")
+    solver.__dict__["_acceptable_iter"] = 0
+    solver.__dict__["_bound_relax_factor"] = 0.0
     return solver
 
+
+def solver_status(program) -> str:
+    """IPOPT's own exit string, which sol.status cannot give: casadi calls both of its successes success."""
+    solver = getattr(getattr(program, "ocp_solver", None), "shaked_ocp_solver", None)
+    return str(solver.stats().get("return_status", "unknown")) if solver is not None else "unknown"
 
 
 def solve(route, subject, phases, free, model_class, table, constants=None, initial_guesses=None,
@@ -210,6 +222,7 @@ def solve(route, subject, phases, free, model_class, table, constants=None, init
         "at_bound": results.parameters_at_bound(program, parameters),
         "cost": float(np.sum(sol.cost)),
         "converged": bool(sol.status == 0),
+        "status": solver_status(program),
         "iterations": int(getattr(sol, "iterations", -1) or -1),
         "seconds": float(getattr(sol, "real_time_to_optimize", np.nan) or np.nan),
         "bounds": {name: (float(program.parameter_bounds[name].min.min()),
@@ -221,15 +234,17 @@ def solve(route, subject, phases, free, model_class, table, constants=None, init
 def diagnostics_of(first, steps, prediction, step2_free) -> dict:
     """What the solver did at every step, the block both the saved result and the summary sheet read."""
     return {
-        "step2": {"free": list(step2_free), "converged": first["converged"],
+        "step2": {"free": list(step2_free), "converged": first["converged"], "status": first["status"],
                   "iterations": first["iterations"], "cost": first["cost"], "seconds": first["seconds"],
                   "at_bound": list(first["at_bound"]), "bounds": first["bounds"]},
         **{f"step3_{key}": {"free": list(STEP3_FREE if key != "joint" else STEP34_FREE),
-                            "converged": step["converged"], "iterations": step["iterations"],
+                            "converged": step["converged"], "status": step["status"],
+                            "iterations": step["iterations"],
                             "cost": step["cost"], "seconds": step["seconds"],
                             "at_bound": list(step["at_bound"]), "bounds": step["bounds"]}
            for key, step in steps.items()},
-        "step5": {"converged": prediction["converged"], "cost": prediction["cost"],
+        "step5": {"converged": prediction["converged"], "status": prediction["status"],
+                  "cost": prediction["cost"],
                   "iterations": prediction["iterations"], "seconds": prediction["seconds"]},
     }
 
@@ -251,11 +266,11 @@ def _produced(route, sol, phases, n_shooting) -> list:
 
 def score(route, step, phases, set_name) -> pd.DataFrame:
     """
-    Score every phase of one step the way the article scores its testing trains.
+    Score every phase of one step the way the article scores its testing trains, in the route's own unit.
     """
     rows = []
     for i, phase in enumerate(phases):
-        measured = np.asarray(step["targets"][i], dtype=float)
+        measured = in_unit(route, step["targets"][i])
         rows.append(
             {
                 "frequency": phase["frequency"],
@@ -263,7 +278,7 @@ def score(route, step, phases, set_name) -> pd.DataFrame:
                 "condition": protocol.condition_name(phase["frequency"], phase["pulse_width"]),
                 "set": set_name,
                 **metrics.score_train(step["times"][i], measured,
-                                       np.asarray(step["identified"][i], dtype=float),
+                                       in_unit(route, step["identified"][i]),
                                        baseline=float(measured[0]) if route.COST == "angle" else 0.0),
             }
         )
@@ -369,7 +384,7 @@ def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=5
     settled = parameter_table(carried["tau1_rest"])
     print(f"Step 2: A = {first['parameters']['A']:.1f} N/s, Km = {carried['km_rest']:.4f}, "
           f"tau1 = {1e3 * carried['tau1_rest']:.1f} ms, tau2 = {1e3 * carried['tau2']:.1f} ms, "
-          f"converged = {first['converged']}")
+          f"converged = {first['converged']} ({first['status']})")
 
     if debug:
         plots.plot_step2_fit(
@@ -398,7 +413,7 @@ def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=5
         steps["joint"] = joint
         print(f"  steps 3+4 (ocp): a' = {relationship['a_scale']:.1f} N/s, "
               f"pd0 = {1e6 * relationship['pd0']:.1f} us, pdt = {1e6 * relationship['pdt']:.1f} us, "
-              f"converged = {joint['converged']}")
+              f"converged = {joint['converged']} ({joint['status']})")
 
     # Continuation along the intensity axis: the intensity solved last is a far better start than the table
     seed = first["parameters"]["A"]
@@ -411,7 +426,7 @@ def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=5
         steps[pulse_width_us] = step
         groups.append((pulse_width_us, step, [labels[i] for i in indices]))
         print(f"  step 3: {pulse_width_us:.0f} us -> A = {step['parameters']['A']:.1f} N/s "
-              f"({step['iterations']} iterations, converged = {step['converged']})")
+              f"({step['iterations']} iterations, converged = {step['converged']}, {step['status']})")
 
     if debug and groups:
         plots.plot_step3_fit(groups, subject, folder=folders["step3"], ylabel=route.YLABEL,
@@ -471,7 +486,8 @@ def identify(route, subject, save=True, debug=True, show_debug=False, max_iter=5
 
     # What the figures, the saved result and the return value all read, derived once so they cannot differ
     measured = np.concatenate(prediction["targets"])
-    produced = np.concatenate(prediction["identified"])
+    measured = in_unit(route, np.concatenate(prediction["targets"]))
+    produced = in_unit(route, np.concatenate(prediction["identified"]))
     rmse = float(results.rmse(measured, produced))
     on_bound = sorted(set(at_bound))
     plateau = a_points[protocol.REFERENCE_PULSE_WIDTH_US] * carried["tau1_rest"]
@@ -596,10 +612,7 @@ def draw(route, subject, relationship, pulse_widths, a_values, table, parameters
             baselines=[float(target[0]) for target in step["targets"]], name=name,
         )
 
-    scaled = table.copy()
-    for column in ("peak_measured", "peak_predicted", "fti_measured", "fti_predicted"):
-        scaled[column] = scaled[column] * route.SCALE
-    plots.plot_agreement(scaled, unit=route.UNIT, title=f"P{subject} measured against predicted")
+    plots.plot_agreement(table, unit=route.UNIT, title=f"P{subject} measured against predicted")
 
     group, step = testing
     debug_plots.plot_solution(

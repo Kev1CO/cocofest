@@ -96,7 +96,7 @@ def simulate_route(route, subject: str, parameters: dict, frequency, pulse_width
     step = steps.solve(route, subject, one, (), ding_model.DingModelArticle, settled,
                        constants={name: float(value) for name, value in parameters.items() if name in FREE},
                        max_iter=5000)
-    return np.asarray(step["times"][0], float), np.asarray(step["identified"][0], float)
+    return np.asarray(step["times"][0], float), steps.in_unit(route, step["identified"][0])
 
 
 def outcome_of(route, subject: str, parameters: dict, frequency, pulse_width_us) -> dict:

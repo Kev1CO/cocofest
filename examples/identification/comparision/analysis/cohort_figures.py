@@ -29,7 +29,7 @@ FIGURES_ROOT = store.RESULTS_ROOT / "figures"
 ROUTES = {route.METHOD: (route.label, route.colour) for route in route_table.ROUTES}
 
 PANELS = (
-    ("plateau_at_reference", r"$A \cdot \tau_1$", 1.0, False),
+    ("plateau_at_reference", r"$A \cdot \tau_1$ (N)", 1.0, False),
     ("a_scale", r"$a'$ (N/s)", 1.0, False),
     ("km_rest", r"$K_m$", 1.0, True),
     ("tau1_rest", r"$\tau_1$ (ms)", 1e3, True),

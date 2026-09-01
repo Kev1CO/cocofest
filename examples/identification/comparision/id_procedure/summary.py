@@ -99,7 +99,7 @@ def _header(axes, route, story):
          f"tau2 {'identified' if story['tau2_identified'] else 'held'}", "black", "normal"),
         (identified, "black", "bold"),
         (f"plateau A*tau1 at {protocol.REFERENCE_PULSE_WIDTH_US:.0f} us = {story['plateau']:.1f} "
-         f"{route.UNIT}   eq. 3 R2 = {story['relationship']['r2']:.3f}   "
+         f"N   eq. 3 R2 = {story['relationship']['r2']:.3f}   "
          f"A rises with the pulse width: {story['relationship']['monotonic']}", "black", "normal"),
         (f"testing: peak error {testing['peak_error'].mean():.1f} %   "
          f"integral error {testing['fti_error'].mean():.1f} %   R2 {testing['r2'].mean():.3f}   "
@@ -238,10 +238,10 @@ def _agreement(axes, route, story, measure):
     table = story["table"]
     for name, marker, colour in (("identification", "o", MUTED), ("testing", "D", PREDICTED)):
         rows = table[table["set"] == name]
-        axes.scatter(route.SCALE * rows[f"{measure}_measured"], route.SCALE * rows[f"{measure}_predicted"],
+        axes.scatter(rows[f"{measure}_measured"], rows[f"{measure}_predicted"],
                      s=12, marker=marker, color=colour, alpha=0.85, label=name)
 
-    limits = route.SCALE * np.array([
+    limits = np.array([
         min(table[f"{measure}_measured"].min(), table[f"{measure}_predicted"].min()),
         max(table[f"{measure}_measured"].max(), table[f"{measure}_predicted"].max()),
     ])
@@ -273,6 +273,19 @@ def _per_condition(axes, story):
     axes.grid(alpha=0.3, axis="x")
 
 
+_SHORT_EXIT = {"Solved_To_Acceptable_Level": "acceptable", "Maximum_Iterations_Exceeded": "max iter",
+               "Restoration_Failed": "restoration", "Infeasible_Problem_Detected": "infeasible"}
+
+
+def _exit_of(block) -> str:
+    """converged, and IPOPT's exit whenever it was not a clean optimum: acceptable level is not one."""
+    verdict = str(block.get("converged", "-"))
+    status = block.get("status", "")
+    if status in ("", "Solve_Succeeded"):
+        return verdict
+    return f"{verdict} ({_SHORT_EXIT.get(status, status.replace('_', ' ').lower())})"
+
+
 def _diagnostics(axes, story):
     """What the solver did at every step and how long it took: a fit on a bound is still a warning."""
     axes.axis("off")
@@ -286,7 +299,7 @@ def _diagnostics(axes, story):
             str(block.get("iterations", "-")),
             f"{block['cost']:.2e}" if "cost" in block else "-",
             f"{block['seconds']:.1f}" if np.isfinite(block.get("seconds", np.nan)) else "-",
-            str(block.get("converged", "-")),
+            _exit_of(block),
             ", ".join(block.get("at_bound", [])) or "-",
         ])
     solved = sum(block["seconds"] for block in story["diagnostics"].values()
@@ -297,7 +310,7 @@ def _diagnostics(axes, story):
     table = axes.table(
         cellText=rows, colLabels=["step", "identified", "iter", "cost", "s", "converged", "at bound"],
         loc="upper center", cellLoc="left", bbox=[0.0, -0.10, 1.0, 1.05],
-        colWidths=[0.13, 0.24, 0.07, 0.11, 0.06, 0.13, 0.26],
+        colWidths=[0.13, 0.20, 0.07, 0.11, 0.06, 0.17, 0.26],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(CELL)
@@ -307,7 +320,7 @@ def _diagnostics(axes, story):
             cell.get_text().set_fontweight("bold")
     for row in range(1, len(rows) + 1):
         on_bound = [name for name in rows[row - 1][6].split(", ") if name not in TOLERATED_AT_BOUND + ("-",)]
-        if rows[row - 1][5] == "False" or on_bound:
+        if rows[row - 1][5] not in ("True", "-") or on_bound:
             table[row, 5].set_facecolor("#ffe1e1")
             table[row, 6].set_facecolor("#ffe1e1")
     for column in range(7):

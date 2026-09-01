@@ -63,9 +63,9 @@ def run_subject(route, subject: str, draws: int, keep: int, keep_reference: int,
         if table is not None and len(table):
             held_out = table[table["set"] == "testing"]
             for _, train in held_out.iterrows():
-                row[f"pred_peak__{train['condition']}"] = float(train["peak_predicted"])
-                row[f"pred_fti__{train['condition']}"] = float(train["fti_predicted"])
-                row[f"meas_peak__{train['condition']}"] = float(train["peak_measured"])
+                for scalar in _shared.SCALARS:
+                    row[f"pred_{scalar}__{train['condition']}"] = float(train[f"{scalar}_predicted"])
+                    row[f"meas_{scalar}__{train['condition']}"] = float(train[f"{scalar}_measured"])
         rows.append(row)
     return pd.DataFrame(rows)
 

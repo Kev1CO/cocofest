@@ -72,7 +72,8 @@ def profile_one(route, subject: str, name: str, points: int, span: float, max_it
               f"(converged {step['converged']})", flush=True)
         rows.append({"route": route.METHOD, "subject": subject, "parameter": name,
                      "value": float(value), "cost": float(step["cost"]),
-                     "converged": bool(step["converged"]), "iterations": int(step["iterations"]),
+                     "converged": bool(step["converged"]), "status": step["status"],
+                     "iterations": int(step["iterations"]),
                      "seconds": float(step["seconds"]),
                      "best_cost": float(best["cost"]), "best_value": float(best["parameters"][name]),
                      "bound_low": float(low), "bound_high": float(high),

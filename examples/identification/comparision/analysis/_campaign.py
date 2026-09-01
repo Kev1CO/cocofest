@@ -92,6 +92,9 @@ def flat(outcome: dict, **extra) -> dict:
     row.update(scores(outcome, "testing"))
     row.update(scores(outcome, "identification"))
     row["converged"] = bool(outcome.get("converged", False))
+    # Every distinct IPOPT exit of the run, so an "acceptable level" step is not read as an optimum
+    row["status"] = "|".join(sorted({block["status"] for block in (outcome.get("diagnostics") or {}).values()
+                                     if "status" in block}))
     row["at_bound"] = "|".join(outcome.get("at_bound", []))
     row["seconds"] = float(outcome.get("seconds", np.nan))
     row["rmse"] = float(outcome.get("rmse", np.nan))
