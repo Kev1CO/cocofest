@@ -2,8 +2,6 @@
 Identification of the Ding et al. (2007) pulse width frequency FES model from the measured elbow flexion.
 """
 
-import pickle
-import re
 import sys
 from pathlib import Path
 
@@ -35,8 +33,6 @@ COMPARISON_ROOT = Path(__file__).resolve().parent.parent
 for _root in (COMPARISON_ROOT, Path(__file__).resolve().parent):
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
-from processing.helper.c3d_to_q import C3dToQ
-from passive_ocp import settled_end
 from helper import debug_plots, results
 from helper.passive_torque_model import PassiveTorque, PassiveTorqueFesMskModel
 from helper.passive_torque_riener import RienerPassiveTorque
@@ -47,8 +43,6 @@ SUM_STIM_TRUNCATION = 10
 ACTIVATE_FORCE_LENGTH_RELATIONSHIP = False
 ACTIVATE_FORCE_VELOCITY_RELATIONSHIP = False
 ACTIVATE_PASSIVE_FORCE_RELATIONSHIP = False
-NON_WEIGHTED_FREQUENCIES = [20, 33, 50]
-SEEDS_PULSE_WIDTH_PATH = COMPARISON_ROOT / "processing" / "helper" / "seeds_pulse_width.pkl"
 
 NOMINAL = {
     "tau1_rest": 0.060601,
@@ -76,7 +70,6 @@ PASSIVE_FLEXION_STOP = {
     "double_exponential": ["k3", "k4", "theta_max"],
 }
 PASSIVE_CLIP_MARGIN = 0.15
-TRUNCATED_TRAIN_FRACTION = 0.5
 PD0_MARGIN = 0.95
 
 # Initial guess of (Cn, F) after the first node. (0, 0) is rest, which leaves four muscle parameters
@@ -88,155 +81,6 @@ PULSE_WIDTH_SCALING = 1e-4
 # Threads of the ocp. Above 1 the reduction order depends on the machine, and on a problem with basins this
 # close together the last bits of the gradient decide which one the solve ends in.
 N_THREADS = 20
-
-
-# ---- Reading the experimental flexions ---- #
-def find_motion_file(subject, frequency):
-    """The motion recording of a subject at a given frequency, without the added weight."""
-    folder = COMPARISON_ROOT / "data" / "exp" / f"P{subject}"
-    matching = [
-        path for path in sorted(folder.glob(f"p{subject}_motion*{frequency}Hz*.c3d")) if "weight" not in path.stem
-    ]
-    if not matching:
-        raise FileNotFoundError(f"No unweighted {frequency}Hz motion recording for P{subject} in {folder}.")
-    return matching[0]
-
-
-def pulse_widths_of(file):
-    """
-    The pulse width applied to each train of a recording, in seconds.
-    """
-    with open(SEEDS_PULSE_WIDTH_PATH, "rb") as handle:
-        seeds = pickle.load(handle)
-    seed = int(re.search(r"_(\d+)\.c3d$", file.name).group(1))
-    return [float(value) / 1e6 for value in seeds[seed]]
-
-
-def movement_slicing(q, time, stim_time):
-    """
-    Cut the whole movement driven by each stimulation train.
-
-    Parameters
-    ----------
-    q: np.ndarray
-        The elbow angle of the whole recording (rad)
-    time: np.ndarray
-        The time vector of the whole recording (s)
-    stim_time: list
-        The stimulation times, grouped per train
-
-    Returns
-    -------
-    tuple
-        The elbow angle, the time vector and the train stimulation times (from the phase start) of every movement
-    """
-    pulses = [len(train) for train in stim_time if len(train)]
-    complete_train = TRUNCATED_TRAIN_FRACTION * float(np.median(pulses)) if pulses else 0
-
-    phases_q, phases_time, phases_stim, kept_trains = [], [], [], []
-    for train_index, train in enumerate(stim_time):
-        if len(train) == 0:
-            continue
-        if len(train) < complete_train:
-            print(f"  train {train_index} dropped: {len(train)} pulses against a median of {np.median(pulses):.0f}")
-            continue
-
-        start = int(np.searchsorted(time, train[0]))
-        next_train = stim_time[train_index + 1] if train_index + 1 < len(stim_time) else []
-        stop = int(np.searchsorted(time, next_train[0])) if len(next_train) else len(time)
-        if stop - start < 5:
-            continue
-
-        segment = slice(start, stop)
-        segment_q = q[segment]
-
-        peak_index = int(np.argmax(segment_q))
-        half_way = segment_q[peak_index] - 0.5 * (segment_q[peak_index] - segment_q[0])
-        descended = np.where(segment_q[peak_index:] <= half_way)[0]
-        search_from = peak_index + int(descended[0]) if descended.size else peak_index
-
-        end = settled_end(segment_q, time[segment], search_from=search_from)
-        if end < 5:
-            continue
-
-        phases_q.append(q[segment][:end])
-        phases_time.append(time[segment][:end])
-        phases_stim.append(np.asarray(train) - time[start])
-        kept_trains.append(train_index)
-
-    return phases_q, phases_time, phases_stim, kept_trains
-
-
-def movement_phases(subject, frequency, debug=False):
-    """
-    The movements of one motion recording, rise and fall, with the pulse width that drove each of them.
-
-    Returns
-    -------
-    list[dict]
-        One entry per movement, with "q", "time", "stim_time", "pulse_width" and "frequency"
-    """
-    file = find_motion_file(subject, frequency)
-    print(f"Loading file: {file}")
-
-    converter = C3dToQ(str(file))
-    converter.frequency_stimulation = frequency
-    stim_time = converter.get_sliced_stim_time()["stim_time"]
-    q_rad, time, phase_stim, kept = movement_slicing(converter.get_q_rad(), converter.get_time(), stim_time)
-    pulse_widths = pulse_widths_of(file)
-
-    panel = {
-        "full_time": converter.get_time(),
-        "full_data": converter.get_q_rad(),
-        "phase_times": time,
-        "phase_data": q_rad,
-        "stim_times": stim_time,
-        "label": f"{frequency} Hz",
-    }
-
-    return panel, [
-        {
-            "q": q_rad[i],
-            "time": time[i],
-            "stim_time": phase_stim[i],
-            "pulse_width": pulse_widths[kept[i] % len(pulse_widths)],
-            "frequency": frequency,
-        }
-        for i in range(len(q_rad))
-    ]
-
-
-def collect_movement_phases(subject, frequencies=None, debug=False):
-    """Gather the movements of several recordings and lay them out on one continuous time base."""
-    frequencies = NON_WEIGHTED_FREQUENCIES if frequencies is None else frequencies
-
-    phases, panels = [], []
-    for frequency in frequencies:
-        try:
-            panel, recording_phases = movement_phases(subject, frequency, debug=debug)
-        except (FileNotFoundError, ValueError, OSError, KeyError) as error:
-            print(f"  P{subject} {frequency}Hz: unusable ({error}), skipped.")
-            continue
-        phases += recording_phases
-        panels.append(panel)
-
-    # --- Debug, pre ocp: every recording of the subject on one figure, one row each --- #
-    if debug and panels:
-        debug_plots.plot_phase_extraction(
-            panels=panels,
-            title=f"P{subject} movement extraction (rise and fall)",
-            unit="deg",
-            scale=180 / np.pi,
-            name="movement_extraction",
-        )
-
-    offset = 0.0
-    for phase in phases:
-        phase["final_time"] = float(phase["time"][-1] - phase["time"][0])
-        phase["global_time"] = phase["time"] - phase["time"][0] + offset
-        phase["time_offset"] = offset
-        offset += phase["final_time"]
-    return phases
 
 
 # ---- Building the ocp ---- #
@@ -413,7 +257,7 @@ def prepare_ocp(
     model_path: str
         The path to the subject's scaled bioMod
     phases: list[dict]
-        The movement phases, as built by collect_movement_phases
+        The movement phases, as observables.movement_phases builds them from data/movement
     passive_torque: PassiveTorque | RienerPassiveTorque
         The articular torque identified beforehand
     n_shooting_per_phase: int
@@ -669,7 +513,7 @@ def identify(
     subject: str
         The subject id, ex: "01"
     phases: list[dict]
-        The movements to identify on, as built by collect_movement_phases
+        The movements to identify on, as observables.movement_phases builds them from data/movement
     method: str
         The name the result is stored under, ex: "movement_id_all"
     passive_method: str

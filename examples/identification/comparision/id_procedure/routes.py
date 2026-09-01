@@ -59,8 +59,6 @@ ROUTES = (
           family="movement", PASSIVE_TORQUE="default"),
 
     # Tested but not kept for further analysis
-    # Route(METHOD="torque_isometric_id", OBSERVABLE="torque", KINEMATICS="prescribed", COST="torque",
-    #       YLABEL="Elbow torque (Nm)", label="elbow torque", colour="tab:cyan"),
     # Route(METHOD="force_ik_movement_id", OBSERVABLE="force", KINEMATICS="prescribed", COST="force",
     #       YLABEL="Muscle force (N)", label="ID force", colour="tab:orange", family="movement"),
     # Route(METHOD="torque_ik_movement_id", OBSERVABLE="torque", KINEMATICS="prescribed", COST="torque",

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import numpy as np
 from scipy import optimize
-from scipy.signal import savgol_filter
 
 import store
 
@@ -15,14 +14,14 @@ import biorbd
 import force_ocp
 import movement_ocp
 import protocol
+from helper import debug_plots
+from processing.helper import movement_processing
 
 
 ISOMETRIC_ELBOW_ANGLE = np.deg2rad(90.0)  # The elbow angle the isometric trials were recorded at
-ISOMETRIC_FOLDERS = {"muscle": "force", "sensor": "sensor", "torque": "torque"}
+ISOMETRIC_FOLDERS = {"muscle": "force", "sensor": "sensor"}
 N_SHOOTING_PER_PHASE = 90
 ID_BASELINE = "none"
-DERIVATIVE_WINDOW = 21
-DERIVATIVE_ORDER = 3
 
 
 def model_path(subject) -> str:
@@ -40,15 +39,14 @@ def isometric_phases(subject, observable="muscle") -> list:
     """
     Every usable stimulation train of one subject, with the chosen observable as the tracked target.
 
-    "muscle" is the force carried into the biceps, "sensor" the norm of the handle force vector, "torque"
-    the elbow torque that load produces. The three are cut on the same trains over the same windows, see
-    processing/data_to_observables.py. One phase per train, the elbow held at the recording angle.
+    "muscle" is the force carried into the biceps, "sensor" the norm of the handle force vector. Both are cut
+    on the same trains over the same windows, see processing/data_to_muscle_force.py and
+    processing/data_to_sensor_force.py. One phase per train, the elbow held at the recording angle.
     """
     ocp_data = force_ocp.load_force_data(subject, data_folder=ISOMETRIC_FOLDERS[observable])
     if ocp_data is None:
-        raise FileNotFoundError(f"No {observable} recording for P{subject}, run processing/data_to_observables.py")
+        raise FileNotFoundError(f"No {observable} recording for P{subject}, run processing/data_to_muscle_force.py")
 
-    unit = "Nm" if observable == "torque" else "N"
     model = biorbd.Model(model_path(subject))
     arm = float(model.musclesLengthJacobian(np.array([ISOMETRIC_ELBOW_ANGLE])).to_array()[muscle_index(model)][0])
     phases = []
@@ -71,7 +69,7 @@ def isometric_phases(subject, observable="muscle") -> list:
                     "q": np.full(n_shooting + 1, ISOMETRIC_ELBOW_ANGLE),
                     "qdot0": 0.0,
                     "moment_arm": np.full(n_shooting + 1, arm),
-                    "unit": unit,
+                    "unit": "N",
                 }
             )
             continue
@@ -86,12 +84,25 @@ def movement_phases(subject, frequencies=None, observable="angle", debug=False) 
     """
     Every usable elbow flexion of one subject, on a node grid aligned on its stimulation period.
 
-    "angle" tracks the measured elbow angle and lets the skeleton move; "force" and "torque" track what the
-    inverse dynamics of the measured movement produces and hold the skeleton on that very movement.
+    The flexions are read from data/movement, already cut at the return and differentiated over their whole
+    recording by processing/data_to_movement.py. "angle" tracks the measured elbow angle and lets the skeleton
+    move; "force" and "torque" track what the inverse dynamics of the measured movement produces and hold the
+    skeleton on that very movement.
     """
-    raw = movement_ocp.collect_movement_phases(subject, frequencies=frequencies, debug=debug)
-    _recording_derivatives(raw)
-    _trim_to_return(raw)
+    raw, panels = movement_processing.load(subject, frequencies=frequencies)
+    if not raw:
+        raise FileNotFoundError(f"No movement recording for P{subject}, run processing/data_to_movement.py")
+
+    # --- Debug, pre ocp: every recording of the subject on one figure, one row each --- #
+    if debug and panels:
+        debug_plots.plot_phase_extraction(
+            panels=panels,
+            title=f"P{subject} movement extraction (rise and fall)",
+            unit="deg",
+            scale=180 / np.pi,
+            name="movement_extraction",
+        )
+
     model = biorbd.Model(model_path(subject))
     index = muscle_index(model)
 
@@ -143,53 +154,6 @@ def movement_phases(subject, frequencies=None, observable="angle", debug=False) 
         )
 
     return _lay_end_to_end(phases)
-
-
-def _trim_to_return(phases) -> list:
-    """
-    Cut each flexion where the elbow reaches its lowest angle again, not where the next train starts.
-
-    movement_ocp slices from one first pulse to the next, so the window carries the tail of the return
-    where the muscle is producing nothing: weight in the cost with no information in it.
-    """
-    for phase in phases:
-        q = np.asarray(phase["q"], dtype=float)
-        peak = int(np.argmax(q))
-        end = peak + int(np.argmin(q[peak:])) + 1
-        # nothing to cut when the movement is still descending at the window edge
-        if end < 5 or end >= len(q):
-            continue
-        phase["q"] = q[:end]
-        phase["time"] = np.asarray(phase["time"], dtype=float)[:end]
-
-    for phase in phases:
-        phase["final_time"] = float(phase["time"][-1] - phase["time"][0])
-    return phases
-
-
-def _recording_derivatives(phases) -> list:
-    """
-    The elbow velocity and acceleration of every flexion, differentiated over its whole recording.
-    """
-    for frequency in sorted({phase["frequency"] for phase in phases}):
-        recording = [phase for phase in phases if phase["frequency"] == frequency]
-        time = np.concatenate([np.asarray(phase["time"], dtype=float) for phase in recording])
-        q = np.concatenate([np.asarray(phase["q"], dtype=float) for phase in recording])
-
-        dt = float(np.median(np.diff(time)))
-        window = min(DERIVATIVE_WINDOW, len(q) - (1 - len(q) % 2))
-        order = min(DERIVATIVE_ORDER, window - 1)
-        qdot = savgol_filter(q, window, order, deriv=1, delta=dt)
-        qddot = savgol_filter(q, window, order, deriv=2, delta=dt)
-
-        start = 0
-        for phase in recording:
-            stop = start + len(phase["q"])
-            phase["full_time"] = np.asarray(phase["time"], dtype=float)
-            phase["full_qdot"], phase["full_qddot"] = qdot[start:stop], qddot[start:stop]
-            start = stop
-
-    return phases
 
 
 # The fewest nodes a cut phase may keep, below which the trim is refused rather than trusted

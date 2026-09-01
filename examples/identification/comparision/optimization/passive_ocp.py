@@ -39,6 +39,7 @@ for _root in (COMPARISON_ROOT, Path(__file__).resolve().parent):
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
 from processing.helper.c3d_to_q import C3dToQ
+from processing.helper.movement_processing import settled_end
 from helper import debug_plots, results
 from helper.passive_torque_model import PassiveTorque, PassiveTorqueBiorbdModel
 from helper.passive_torque_riener import RienerPassiveTorque
@@ -53,8 +54,6 @@ FORMULATIONS = {
 
 MAX_PHASE_DURATION = 3.5
 MIN_PHASE_DURATION = 0.3
-SETTLED_SPEED_FRACTION = 0.05
-SETTLED_QUIET_DURATION = 0.15
 INITIAL_VELOCITY_TOLERANCE = 0  # rad/s
 
 
@@ -123,39 +122,6 @@ def slicing(q, time, stim_time):
         sliced_time.append(time[relaxation])
 
     return sliced_q, sliced_time
-
-
-def settled_end(q, time, speed_fraction=SETTLED_SPEED_FRACTION, quiet_duration=SETTLED_QUIET_DURATION, search_from=0):
-    """
-    Index at which the joint has settled: the end of the first stretch where its speed stays below
-    `speed_fraction` of the phase's speed peak for `quiet_duration` seconds.
-
-    Parameters
-    ----------
-    search_from: int
-        Ignore any quiet stretch starting before this index. A relaxation begins at the top of the motion where
-        the joint is momentarily still, and a full rise-and-fall phase begins before the stimulation has built
-        any force: without this the search would settle on that opening stillness and cut the phase immediately.
-    """
-    q, time = np.asarray(q, dtype=float), np.asarray(time, dtype=float)
-    if len(q) < 5:
-        return len(q)
-
-    speed = np.abs(np.gradient(q, time))
-    peak = float(speed.max())
-    if peak <= 0:
-        return len(q)
-
-    dt = float(np.median(np.diff(time)))
-    window = max(3, int(round(quiet_duration / dt)))
-    if window >= len(speed):
-        return len(q)
-
-    quiet = (speed < speed_fraction * peak).astype(float)
-    sustained = np.convolve(quiet, np.ones(window), mode="valid")
-    settled = np.where(sustained >= window)[0]
-    settled = settled[settled >= search_from]
-    return len(q) if settled.size == 0 else min(len(q), int(settled[0]) + window)
 
 
 # The motion recordings used for the passive identification: three stimulation frequencies, no weight
